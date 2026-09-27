@@ -6,6 +6,7 @@
   },
   "emojis": {
     "login": "🔐",
+    "queue": "📋",
     "save_account": "💾",
     "tag_changer": "🏷️",
     "goldtrue": "🟡",
@@ -14,5 +15,8 @@
     "x": "❌",
     "settings": "⚙️",
     "independent_learning": "📚"
+  },
+  "channels": {
+    "educake": "1552420129802035231"
   }
 }
