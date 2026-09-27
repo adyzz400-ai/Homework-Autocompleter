@@ -13,7 +13,9 @@ async function educakeLogin(username, password, loginType, on2FA) {
   console.log('[Educake] Starting Chrome...');
 
   const browser = await puppeteer.launch({
-    headless: true
+    headless: true,
+    executablePath:
+      '/opt/render/.cache/puppeteer/chrome/linux-142.0.7444.175/chrome-linux64/chrome'
   });
 
   try {
@@ -63,14 +65,6 @@ async function educakeLogin(username, password, loginType, on2FA) {
       });
 
       await page.click(loginButtonSelector);
-
-      await page.evaluate(selector => {
-        const btn = document.querySelector(selector);
-
-        if (btn) {
-          btn.click();
-        }
-      }, loginButtonSelector);
 
       await page.waitForNavigation({
         waitUntil: 'domcontentloaded',
