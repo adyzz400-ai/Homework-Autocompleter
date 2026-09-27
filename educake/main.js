@@ -846,7 +846,8 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                     `Choose up to ${
                                         config
                                             .max_homework_selection
-                                            ?.educake || 6
+                                            ?.educake ||
+                                        6
                                     } homeworks`
                                 )
                                 .setMinValues(0)
@@ -892,7 +893,8 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                     `Choose up to ${
                                         config
                                             .max_homework_selection
-                                            ?.educake || 6
+                                            ?.educake ||
+                                            6
                                     } homeworks`
                                 )
                                 .setMinValues(0)
@@ -1176,6 +1178,8 @@ async function educake_model_executor(interaction) {
             flags: 32768 | 64
         });
 
+        console.log('[Educake] Calling educakeLogin...');
+
         const cookie = await puppetQueue.add(
             () =>
                 educakeLogin(
@@ -1183,6 +1187,11 @@ async function educake_model_executor(interaction) {
                     password,
                     loginType
                 )
+        );
+
+        console.log(
+            '[Educake] educakeLogin returned:',
+            cookie ? 'COOKIE' : 'FALSE'
         );
 
         if (
