@@ -13,9 +13,7 @@ async function educakeLogin(username, password, loginType, on2FA) {
   console.log('[Educake] Starting Chrome...');
 
   const browser = await puppeteer.launch({
-    headless: true,
-    executablePath:
-      '/opt/render/.cache/puppeteer/chrome/linux-142.0.7444.175/chrome-linux64/chrome'
+    headless: true
   });
 
   try {
@@ -38,42 +36,26 @@ async function educakeLogin(username, password, loginType, on2FA) {
     const cookieButton = await page.$(cookieButtonSelector);
 
     if (cookieButton) {
-      console.log('[Educake] Cookie banner found.');
-
       await cookieButton.click();
-
       console.log('[Educake] Cookie consent accepted.');
-    } else {
-      console.log('[Educake] No cookie banner found.');
     }
 
     if (loginType === 'Normal') {
-      console.log('[Educake] Login type: Normal.');
-      console.log('[Educake] Waiting for username field...');
+      console.log('[Educake] Using Normal login...');
 
       await page.waitForSelector('input[name="username"]', {
         visible: true,
         timeout: 30000
       });
 
-      console.log('[Educake] Username field found.');
-
       await page.type('input[name="username"]', username);
-
-      console.log('[Educake] Username entered.');
-      console.log('[Educake] Waiting for password field...');
 
       await page.waitForSelector('input[name="password"]', {
         visible: true,
         timeout: 30000
       });
 
-      console.log('[Educake] Password field found.');
-
       await page.type('input[name="password"]', password);
-
-      console.log('[Educake] Password entered.');
-      console.log('[Educake] Waiting for login button...');
 
       const loginButtonSelector = 'button[type="submit"]';
 
@@ -82,27 +64,23 @@ async function educakeLogin(username, password, loginType, on2FA) {
         timeout: 30000
       });
 
-      console.log('[Educake] Login button found.');
       console.log('[Educake] Clicking login button...');
 
       await page.click(loginButtonSelector);
-
-      console.log('[Educake] Login button clicked.');
 
       await page.waitForNavigation({
         waitUntil: 'domcontentloaded',
         timeout: 30000
       }).catch(() => {
         console.log(
-          '[Educake] Navigation timeout after login. Continuing...'
+          '[Educake] Navigation after login timed out, continuing...'
         );
       });
 
-      console.log('[Educake] Post-login URL:', page.url());
+      console.log('[Educake] Current URL after login:', page.url());
 
     } else {
-      console.log(`[Educake] Login type: ${loginType}.`);
-      console.log('[Educake] Looking for SSO login button...');
+      console.log(`[Educake] Using ${loginType} login...`);
 
       const buttonIndex = loginType === 'Google' ? 0 : 1;
 
@@ -110,8 +88,6 @@ async function educakeLogin(username, password, loginType, on2FA) {
         visible: true,
         timeout: 30000
       });
-
-      console.log('[Educake] SSO buttons found.');
 
       await page.evaluate(index => {
         const buttons = document.querySelectorAll('.sso-login.btn.white');
@@ -126,8 +102,6 @@ async function educakeLogin(username, password, loginType, on2FA) {
       const landedFunction = ({ url }) =>
         url.includes('my.educake.co.uk/my-educake');
 
-      console.log('[Educake] Starting SSO login handler...');
-
       await smartLogin(
         page,
         username,
@@ -138,12 +112,11 @@ async function educakeLogin(username, password, loginType, on2FA) {
         on2FA
       );
 
-      console.log('[Educake] SSO login handler finished.');
+      console.log('[Educake] SSO login completed.');
       console.log('[Educake] Current URL:', page.url());
     }
 
     console.log('[Educake] Login flow completed.');
-    console.log('[Educake] Waiting before collecting cookies...');
 
     await delay(3000);
 
@@ -178,7 +151,7 @@ async function educakeLogin(username, password, loginType, on2FA) {
     );
 
     if (!cookieHeader) {
-      console.log('[Educake] No required login cookies were found.');
+      console.log('[Educake] No required cookies found.');
       return false;
     }
 
