@@ -569,7 +569,13 @@ async function educake_model_executor(interaction) {
         educake_Request.sessionToken = authToken.accessToken;
         userSessions[interaction.user.id] = educake_Request;
 
-        const educakeMainmenuer = new educakeMainMenu(interaction, (await checkAccount(interaction.user.id)).educake_settings);
+        const account = await checkAccount(interaction.user.id);
+const educakeSettings = account?.educake_settings ?? { min: 5, max: 10 };
+
+const educakeMainmenuer = new educakeMainMenu(
+    interaction,
+    educakeSettings
+);
         userMenus[interaction.user.id] = educakeMainmenuer;
         await educakeMainmenuer.main();
     } else if (interaction.customId === 'educake_set_time') {
@@ -598,7 +604,7 @@ async function educake_collector(message_sent) {
     collector.on('collect', async (interaction) => {
         // Check if user has required roles (using the same roles as defined in main index.js)
 
-        if (await validAccount(interaction, 'educake')) return;
+        if (await validAccount(interaction, 'educake', false)) return;
 
         const loginBtn = new ButtonBuilder()
             .setCustomId("educake_login")
