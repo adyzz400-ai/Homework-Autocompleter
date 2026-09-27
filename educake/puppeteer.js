@@ -7,7 +7,10 @@ const smartLogin = require('../utils/smartLogin'); // my-educake
 
 async function educakeLogin(username, password, loginType, on2FA) {
   // Launch browser
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: puppeteer.executablePath()
+  });
   try {
   const page = await browser.newPage();
 
