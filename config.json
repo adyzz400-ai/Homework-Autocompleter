@@ -3,5 +3,15 @@
     "free": 1,
     "basic": 2,
     "premium": 5
+  },
+  "emojis": {
+    "save_account": "💾",
+    "tag_changer": "🏷️",
+    "goldtrue": "🟡",
+    "goldfalse": "⚪",
+    "tick": "✅",
+    "x": "❌",
+    "settings": "⚙️",
+    "independent_learning": "📚"
   }
 }
