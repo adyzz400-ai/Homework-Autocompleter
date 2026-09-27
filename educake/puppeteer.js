@@ -7,14 +7,13 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 puppeteer.use(StealthPlugin());
 
-const smartLogin = require('../utils/smartLogin'); // my-educake
+const smartLogin = require('../utils/smartLogin');
 
 async function educakeLogin(username, password, loginType, on2FA) {
   console.log('[Educake] Starting Chrome...');
 
   const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: puppeteer.executablePath()
+    headless: true
   });
 
   try {
@@ -22,8 +21,6 @@ async function educakeLogin(username, password, loginType, on2FA) {
 
     console.log('[Educake] Opening login page...');
 
-    // Increased timeout from 5 seconds to 30 seconds.
-    // domcontentloaded avoids waiting indefinitely for every network request.
     await page.goto('https://my.educake.co.uk/student-login', {
       waitUntil: 'domcontentloaded',
       timeout: 30000
@@ -78,8 +75,10 @@ async function educakeLogin(username, password, loginType, on2FA) {
       await page.waitForNavigation({
         waitUntil: 'domcontentloaded',
         timeout: 30000
-      }).catch(err => {
-        console.log('[Educake] Navigation after login timed out, continuing...');
+      }).catch(() => {
+        console.log(
+          '[Educake] Navigation after login timed out, continuing...'
+        );
       });
 
     } else {
