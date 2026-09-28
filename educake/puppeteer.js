@@ -140,153 +140,231 @@ try {
         // NORMAL LOGIN
         // ==================================================
 
-        if (loginType === 'Normal') {
-            console.log(
-                '[Educake] Using Normal login...'
-            );
+        // ==================================================
+// NORMAL LOGIN
+// ==================================================
 
-            console.log(
-                '[Educake] Waiting for username field...'
-            );
+if (loginType === 'Normal') {
+    console.log(
+        '[Educake] Using Normal login...'
+    );
 
-            await page.waitForSelector(
-                'input[name="username"]',
-                {
-                    visible: true,
-                    timeout: 30000
-                }
-            );
+    console.log(
+        '[Educake] Waiting for username field...'
+    );
 
-            console.log(
-                '[Educake] Username field found.'
-            );
-
-            await page.type(
-                'input[name="username"]',
-                username
-            );
-
-            console.log(
-                '[Educake] Waiting for password field...'
-            );
-
-            await page.waitForSelector(
-                'input[name="password"]',
-                {
-                    visible: true,
-                    timeout: 30000
-                }
-            );
-
-            console.log(
-                '[Educake] Password field found.'
-            );
-
-            console.log(
-                '[Educake] Filling password field...'
-            );
-
-            await page.$eval(
-                'input[name="password"]',
-                (element, value) => {
-                    element.focus();
-
-                    element.value = value;
-
-                    element.dispatchEvent(
-                        new Event('input', {
-                            bubbles: true
-                        })
-                    );
-
-                    element.dispatchEvent(
-                        new Event('change', {
-                            bubbles: true
-                        })
-                    );
-                },
-                password
-            );
-
-            console.log(
-                '[Educake] Password field filled.'
-            );
-
-            const loginButtonSelector =
-                'button[type="submit"]';
-
-            console.log(
-                '[Educake] Waiting for login button...'
-            );
-
-            await page.waitForSelector(
-                loginButtonSelector,
-                {
-                    visible: true,
-                    timeout: 30000
-                }
-            );
-
-            console.log(
-                '[Educake] Login button found.'
-            );
-
-            console.log(
-                '[Educake] Clicking login button...'
-            );
-
-            await page.click(
-                loginButtonSelector
-            );
-
-            console.log(
-                '[Educake] Login button clicked.'
-            );
-
-            console.log(
-                '[Educake] Waiting for login to complete...'
-            );
-
-           await delay(3000);
-
-const loginPageInfo = await page.evaluate(() => {
-    return {
-        url: window.location.href,
-        text: (document.body.innerText || '').slice(0, 3000)
-    };
-});
-
-console.log(
-    '[Educake] URL after login:',
-    loginPageInfo.url
-);
-
-console.log(
-    '[Educake] Page text after login:',
-    loginPageInfo.text
-);
-
-            console.log(
-                '[Educake] Current URL after login:',
-                page.url()
-            );
-
-            const currentCookies =
-                await page.cookies();
-
-            console.log(
-                `[Educake] Cookies after login: ${currentCookies.length}`
-            );
-
-            console.log(
-                '[Educake] Cookie names:',
-                currentCookies
-                    .map(cookie => cookie.name)
-                    .join(', ')
-            );
-
+    await page.waitForSelector(
+        'input[name="username"]',
+        {
+            visible: true,
+            timeout: 30000
         }
+    );
 
+    console.log(
+        '[Educake] Username field found.'
+    );
+
+    await page.click(
+        'input[name="username"]'
+    );
+
+    await page.type(
+        'input[name="username"]',
+        username
+    );
+
+    console.log(
+        '[Educake] Username filled.'
+    );
+
+    console.log(
+        '[Educake] Waiting for password field...'
+    );
+
+    await page.waitForSelector(
+        'input[name="password"]',
+        {
+            visible: true,
+            timeout: 30000
+        }
+    );
+
+    console.log(
+        '[Educake] Password field found.'
+    );
+
+    await page.click(
+        'input[name="password"]'
+    );
+
+    await page.type(
+        'input[name="password"]',
+        password
+    );
+
+    console.log(
+        '[Educake] Password filled.'
+    );
+
+    const loginButtonSelector =
+        'button[type="submit"]';
+
+    console.log(
+        '[Educake] Waiting for login button...'
+    );
+
+    await page.waitForSelector(
+        loginButtonSelector,
+        {
+            visible: true,
+            timeout: 30000
+        }
+    );
+
+    console.log(
+        '[Educake] Login button found.'
+    );
+
+    // ----------------------------------------------
+    // Monitor network responses during login
+    // ----------------------------------------------
+
+    const loginResponses = [];
+
+    const responseListener = response => {
+        try {
+            const request = response.request();
+
+            if (
+                request.method() === 'POST' &&
+                response.url().includes('educake.co.uk')
+            ) {
+                loginResponses.push({
+                    url: response.url(),
+                    status: response.status()
+                });
+
+                console.log(
+                    '[Educake] Login POST response:',
+                    response.status(),
+                    response.url()
+                );
+            }
+        } catch (error) {
+            console.log(
+                '[Educake] Could not inspect response:',
+                error.message
+            );
+        }
+    };
+
+    page.on(
+        'response',
+        responseListener
+    );
+
+    console.log(
+        '[Educake] Clicking login button...'
+    );
+
+    try {
+        await page.click(
+            loginButtonSelector
+        );
+    } finally {
+        // Give the login request time to finish.
+        await delay(5000);
+
+        page.off(
+            'response',
+            responseListener
+        );
+    }
+
+    console.log(
+        '[Educake] Login click completed.'
+    );
+
+    // ----------------------------------------------
+    // Check final page state
+    // ----------------------------------------------
+
+    console.log(
+        '[Educake] Checking login result...'
+    );
+
+    const loginResult =
+        await page.evaluate(() => {
+            const usernameField =
+                document.querySelector(
+                    'input[name="username"]'
+                );
+
+            const passwordField =
+                document.querySelector(
+                    'input[name="password"]'
+                );
+
+            return {
+                url: window.location.href,
+
+                loginFormVisible:
+                    !!(
+                        usernameField ||
+                        passwordField
+                    ),
+
+                pageText:
+                    (
+                        document.body.innerText ||
+                        ''
+                    ).slice(0, 3000)
+            };
+        });
+
+    console.log(
+        '[Educake] Final URL:',
+        loginResult.url
+    );
+
+    console.log(
+        '[Educake] Login form still visible:',
+        loginResult.loginFormVisible
+    );
+
+    console.log(
+        '[Educake] Login POST responses:',
+        loginResponses.length
+    );
+
+    if (loginResponses.length > 0) {
+        console.log(
+            '[Educake] Login response summary:',
+            JSON.stringify(loginResponses)
+        );
+    }
+
+    console.log(
+        '[Educake] Page text after login:',
+        loginResult.pageText
+    );
+
+    if (
+        loginResult.url.includes(
+            '/student-login'
+        ) &&
+        loginResult.loginFormVisible
+    ) {
+        console.log(
+            '[Educake] Login did not complete.'
+        );
+    } else {
+        console.log(
+            '[Educake] Login appears to have completed.'
+        );
+    }
+}
         // ==================================================
         // GOOGLE / MICROSOFT LOGIN
         // ==================================================
