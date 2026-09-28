@@ -3,13 +3,16 @@ require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
+const smartLogin =
+    require('../utils/smartLogin');
+
 const delay = ms =>
     new Promise(resolve => setTimeout(resolve, ms));
 
 puppeteer.use(StealthPlugin());
 
-const smartLogin =
-    require('../utils/smartLogin');
+// Keep authenticated Educake browser sessions alive.
+const browserSessions = new Map();
 
 async function educakeLogin(
     username,
@@ -18,23 +21,24 @@ async function educakeLogin(
     on2FA
 ) {
     let browser = null;
+    let keepBrowserOpen = false;
 
     try {
-        console.log(
-            '[Educake] Starting Chrome...'
-        );
+        console.log('[Educake] Starting Chrome...');
 
         browser = await puppeteer.launch({
             headless: true,
             timeout: 30000
         });
 
-        console.log(
-            '[Educake] Chrome started.'
-        );
+        console.log('[Educake] Chrome started.');
 
         const page =
             await browser.newPage();
+
+        await page.setDefaultNavigationTimeout(
+            30000
+        );
 
         console.log(
             '[Educake] Opening Educake login page...'
@@ -168,10 +172,6 @@ async function educakeLogin(
                 '[Educake] Password field found.'
             );
 
-            // ==================================================
-            // PASSWORD ENTRY
-            // ==================================================
-
             console.log(
                 '[Educake] Filling password field...'
             );
@@ -201,10 +201,6 @@ async function educakeLogin(
             console.log(
                 '[Educake] Password field filled.'
             );
-
-            // ==================================================
-            // LOGIN BUTTON
-            // ==================================================
 
             const loginButtonSelector =
                 'button[type="submit"]';
@@ -237,10 +233,6 @@ async function educakeLogin(
                 '[Educake] Login button clicked.'
             );
 
-            // ==================================================
-            // LOGIN COMPLETION
-            // ==================================================
-
             console.log(
                 '[Educake] Waiting for login to complete...'
             );
@@ -263,15 +255,13 @@ async function educakeLogin(
                 `[Educake] Cookies after login: ${currentCookies.length}`
             );
 
-            const cookieNames =
-                currentCookies.map(
-                    cookie => cookie.name
-                );
-
             console.log(
                 '[Educake] Cookie names:',
-                cookieNames.join(', ')
+                currentCookies
+                    .map(cookie => cookie.name)
+                    .join(', ')
             );
+
         }
 
         // ==================================================
@@ -349,7 +339,7 @@ async function educakeLogin(
         }
 
         // ==================================================
-        // VERIFY LOGIN
+        // COLLECT BROWSER COOKIES
         // ==================================================
 
         console.log(
@@ -409,6 +399,25 @@ async function educakeLogin(
             return false;
         }
 
+        // ==================================================
+        // KEEP THE SAME BROWSER SESSION ALIVE
+        // ==================================================
+
+        browserSessions.set(
+            cookieHeader,
+            {
+                browser,
+                page,
+                createdAt: Date.now()
+            }
+        );
+
+        keepBrowserOpen = true;
+
+        console.log(
+            '[Educake] Authenticated browser session stored.'
+        );
+
         console.log(
             '[Educake] Login successful.'
         );
@@ -425,7 +434,12 @@ async function educakeLogin(
         return false;
 
     } finally {
-        if (browser) {
+        // Only close the browser if login failed.
+        // Successful sessions stay alive for API requests.
+        if (
+            browser &&
+            !keepBrowserOpen
+        ) {
             try {
                 await browser.close();
 
@@ -443,6 +457,252 @@ async function educakeLogin(
     }
 }
 
+
+// ==========================================================
+// BROWSER SESSION REQUEST
+// ==========================================================
+
+async function browserRequest(
+    cookies,
+    url,
+    headers = {},
+    data = null,
+    options = {}
+) {
+    const session =
+        browserSessions.get(cookies);
+
+    if (!session) {
+        throw new Error(
+            '[Educake] Authenticated browser session not found.'
+        );
+    }
+
+    const {
+        page
+    } = session;
+
+    if (
+        !page ||
+        page.isClosed()
+    ) {
+        browserSessions.delete(
+            cookies
+        );
+
+        throw new Error(
+            '[Educake] Authenticated browser page is closed.'
+        );
+    }
+
+    const method =
+        data !== null &&
+        data !== undefined
+            ? 'POST'
+            : 'GET';
+
+    console.log(
+        '[Educake Browser] REQUEST:',
+        method,
+        url
+    );
+
+    const requestHeaders = {};
+
+    if (Array.isArray(headers)) {
+        headers.forEach(header => {
+            const separator =
+                header.indexOf(':');
+
+            if (separator === -1) {
+                return;
+            }
+
+            const key =
+                header
+                    .slice(0, separator)
+                    .trim();
+
+            const value =
+                header
+                    .slice(separator + 1)
+                    .trim();
+
+            requestHeaders[key] =
+                value;
+        });
+    }
+
+    const requestBody =
+        Buffer.isBuffer(data)
+            ? data.toString('base64')
+            : data !== null &&
+              data !== undefined
+                ? typeof data === 'object'
+                    ? JSON.stringify(data)
+                    : String(data)
+                : null;
+
+    const result =
+        await page.evaluate(
+            async ({
+                url,
+                method,
+                headers,
+                body
+            }) => {
+                const controller =
+                    new AbortController();
+
+                const timeout =
+                    setTimeout(
+                        () =>
+                            controller.abort(),
+                        45000
+                    );
+
+                try {
+                    const response =
+                        await fetch(
+                            url,
+                            {
+                                method,
+                                headers,
+                                body:
+                                    method === 'POST'
+                                        ? body
+                                        : undefined,
+                                credentials:
+                                    'include',
+                                signal:
+                                    controller.signal
+                            }
+                        );
+
+                    const responseBuffer =
+                        await response.arrayBuffer();
+
+                    let binary = '';
+
+                    const bytes =
+                        new Uint8Array(
+                            responseBuffer
+                        );
+
+                    for (
+                        let i = 0;
+                        i < bytes.length;
+                        i++
+                    ) {
+                        binary += String.fromCharCode(
+                            bytes[i]
+                        );
+                    }
+
+                    return {
+                        status:
+                            response.status,
+
+                        headers:
+                            Object.fromEntries(
+                                response.headers.entries()
+                            ),
+
+                        body:
+                            btoa(binary)
+                    };
+
+                } finally {
+                    clearTimeout(timeout);
+                }
+            },
+            {
+                url,
+                method,
+                headers: requestHeaders,
+                body: requestBody
+            }
+        );
+
+    const bodyBuffer =
+        Buffer.from(
+            result.body || '',
+            'base64'
+        );
+
+    let responseBody;
+
+    if (
+        options.responseType ===
+        'arraybuffer'
+    ) {
+        responseBody =
+            bodyBuffer;
+
+    } else {
+        const bodyString =
+            bodyBuffer.toString(
+                'utf8'
+            );
+
+        try {
+            responseBody =
+                JSON.parse(
+                    bodyString
+                );
+        } catch {
+            responseBody =
+                bodyString;
+        }
+    }
+
+    console.log(
+        '[Educake Browser] HTTP status:',
+        result.status
+    );
+
+    return {
+        status:
+            result.status,
+
+        headers:
+            result.headers || {},
+
+        data:
+            responseBody
+    };
+}
+
+
+async function closeEducakeSession(
+    cookies
+) {
+    const session =
+        browserSessions.get(cookies);
+
+    if (!session) {
+        return;
+    }
+
+    browserSessions.delete(cookies);
+
+    try {
+        if (
+            session.browser
+        ) {
+            await session.browser.close();
+        }
+    } catch (error) {
+        console.error(
+            '[Educake] Browser close error:',
+            error.message
+        );
+    }
+}
+
+
 module.exports = {
-    educakeLogin
+    educakeLogin,
+    browserRequest,
+    closeEducakeSession
 };
