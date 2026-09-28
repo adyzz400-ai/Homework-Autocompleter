@@ -36,7 +36,8 @@ const {
 } = require('../database/educake');
 
 const {
-    educakeLogin
+    educakeLogin,
+    verifyEducakeSession
 } = require('./puppeteer');
 
 const {
@@ -1657,7 +1658,40 @@ async function educake_model_executor(
         console.log(
             '[Educake] Login really completed.'
         );
+console.log(
+    '[Educake] Verifying browser authentication...'
+);
 
+try {
+    await verifyEducakeSession(cookie);
+
+    console.log(
+        '[Educake] Browser authentication verified.'
+    );
+
+} catch (error) {
+    console.error(
+        '[Educake] Browser authentication verification failed:',
+        error.message
+    );
+
+    const embed =
+        new EmbedBuilder()
+            .setColor(0xff474d)
+            .setTitle(
+                '❌ Session Error'
+            )
+            .setDescription(
+                'Educake login did not create a valid authenticated browser session.'
+            );
+
+    await interaction.editReply({
+        embeds: [embed],
+        components: []
+    });
+
+    return;
+}
         // ==================================================
         // CREATE EDUCAKE REQUESTICATOR
         // ==================================================
