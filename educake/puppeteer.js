@@ -677,7 +677,77 @@ async function browserRequest(
     };
 }
 
+async function verifyEducakeSession(cookies) {
+    const session = browserSessions.get(cookies);
 
+    if (!session) {
+        throw new Error(
+            '[Educake] Authenticated browser session not found.'
+        );
+    }
+
+    const { page } = session;
+
+    if (!page || page.isClosed()) {
+        throw new Error(
+            '[Educake] Authenticated browser page is closed.'
+        );
+    }
+
+    console.log(
+        '[Educake] Verifying authenticated browser session...'
+    );
+
+    const result = await page.evaluate(async () => {
+        const response = await fetch(
+            'https://my.educake.co.uk/student-login',
+            {
+                method: 'GET',
+                credentials: 'include'
+            }
+        );
+
+        return {
+            status: response.status,
+            url: window.location.href,
+            hasUsernameField:
+                !!document.querySelector(
+                    'input[name="username"]'
+                ),
+            hasPasswordField:
+                !!document.querySelector(
+                    'input[name="password"]'
+                )
+        };
+    });
+
+    console.log(
+        '[Educake] Session verification status:',
+        result.status
+    );
+
+    console.log(
+        '[Educake] Session verification URL:',
+        result.url
+    );
+
+    console.log(
+        '[Educake] Login form still present:',
+        result.hasUsernameField ||
+        result.hasPasswordField
+    );
+
+    if (
+        result.hasUsernameField ||
+        result.hasPasswordField
+    ) {
+        throw new Error(
+            '[Educake] Browser session is still on the login page.'
+        );
+    }
+
+    return true;
+}
 async function closeEducakeSession(
     cookies
 ) {
