@@ -1673,43 +1673,25 @@ async function educake_model_executor(
                 }
             );
 
+        // ==================================================
+        // GET EDUCAKE SESSION TOKEN
+        // ==================================================
+
         console.log(
             '[Educake] Getting Educake session token...'
         );
 
-        let authToken;
+        let sessionResponse;
 
         try {
             console.log(
                 '[Educake] Requesting /session-token...'
             );
 
-            authToken =
-                await educake_Request.sendRequest(
+            sessionResponse =
+                await educake_Request.sendDetailedRequest(
                     'https://my.educake.co.uk/session-token'
                 );
-
-            // IMPORTANT:
-            // Do NOT log the actual response because it
-            // could contain a usable authentication token.
-            if (
-                authToken &&
-                typeof authToken === 'object'
-            ) {
-                console.log(
-                    '[Educake] Session-token response keys:',
-                    Object.keys(authToken)
-                );
-            } else {
-                console.log(
-                    '[Educake] Session-token response type:',
-                    typeof authToken
-                );
-
-                console.log(
-                    '[Educake] Session-token response was not an object.'
-                );
-            }
 
         } catch (error) {
             console.error(
@@ -1749,16 +1731,9 @@ async function educake_model_executor(
             return;
         }
 
-        // ==================================================
-        // VALIDATE SESSION TOKEN
-        // ==================================================
-
-        if (
-            !authToken ||
-            typeof authToken !== 'object'
-        ) {
+        if (!sessionResponse) {
             console.error(
-                '[Educake] Session-token response was empty or invalid.'
+                '[Educake] Session response was completely empty.'
             );
 
             const embed =
@@ -1768,7 +1743,7 @@ async function educake_model_executor(
                         '❌ Session Error'
                     )
                     .setDescription(
-                        'Educake login succeeded, but Educake did not return a valid session response.'
+                        'Educake returned an empty session response.'
                     );
 
             await interaction.editReply({
@@ -1779,17 +1754,87 @@ async function educake_model_executor(
             return;
         }
 
+        console.log(
+            '[Educake] Session HTTP status:',
+            sessionResponse.status
+        );
+
+        console.log(
+            '[Educake] Session response type:',
+            typeof sessionResponse.data
+        );
+
         if (
-            !authToken.accessToken
+            sessionResponse.data &&
+            typeof sessionResponse.data ===
+                'object' &&
+            !Buffer.isBuffer(
+                sessionResponse.data
+            )
+        ) {
+            console.log(
+                '[Educake] Session response keys:',
+                Object.keys(
+                    sessionResponse.data
+                )
+            );
+        }
+
+        console.log(
+            '[Educake] Session response received.'
+        );
+
+        const sessionData =
+            sessionResponse.data;
+
+        let accessToken = null;
+
+        if (
+            sessionData &&
+            typeof sessionData ===
+                'object'
+        ) {
+            accessToken =
+                sessionData.accessToken ||
+                sessionData.access_token ||
+                sessionData.sessionToken ||
+                sessionData.token ||
+                sessionData.data?.accessToken ||
+                sessionData.data?.access_token ||
+                sessionData.data?.sessionToken ||
+                sessionData.data?.token ||
+                null;
+        }
+
+        else if (
+            typeof sessionData ===
+                'string'
+        ) {
+            accessToken =
+                sessionData.trim();
+        }
+
+        if (
+            !accessToken ||
+            typeof accessToken !==
+                'string'
         ) {
             console.error(
-                '[Educake] Educake did not provide accessToken.'
+                '[Educake] No usable session token was found.'
             );
 
-            console.error(
-                '[Educake] Response keys:',
-                Object.keys(authToken)
-            );
+            if (
+                sessionData &&
+                typeof sessionData ===
+                    'object'
+            ) {
+                console.error(
+                    '[Educake] Available response keys:',
+                    Object.keys(
+                        sessionData
+                    )
+                );
+            }
 
             const embed =
                 new EmbedBuilder()
@@ -1798,7 +1843,7 @@ async function educake_model_executor(
                         '❌ Session Error'
                     )
                     .setDescription(
-                        'Educake login succeeded, but Educake did not provide a session token.'
+                        'Educake login succeeded, but the session-token response did not contain a usable session token.'
                     );
 
             await interaction.editReply({
@@ -1814,14 +1859,14 @@ async function educake_model_executor(
         );
 
         educake_Request.sessionToken =
-            authToken.accessToken;
+            accessToken;
 
         userSessions[
             interaction.user.id
         ] = educake_Request;
 
         console.log(
-            '[Educake] Educake session stored.'
+            '[Educake] Educake session stored successfully.'
         );
 
         // ==================================================
