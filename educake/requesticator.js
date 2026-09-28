@@ -104,8 +104,7 @@ class PythonWorker {
                         error
                     );
 
-                    this.currentResolver =
-                        null;
+                    this.currentResolver = null;
                 }
             }
         );
@@ -126,8 +125,7 @@ class PythonWorker {
                         )
                     );
 
-                    this.currentResolver =
-                        null;
+                    this.currentResolver = null;
                 }
 
                 this.buffer = '';
@@ -166,8 +164,7 @@ class PythonWorker {
                     line
                 );
 
-                this.currentResolver =
-                    null;
+                this.currentResolver = null;
             }
         }
     }
@@ -240,7 +237,7 @@ class curlRequesticator {
         );
 
         const requestData = {
-            url: url,
+            url,
             method: data ? 'POST' : 'GET',
             headers: {},
             cookies: this.cookies,
@@ -278,7 +275,7 @@ class curlRequesticator {
             requestData.is_binary_data =
                 true;
 
-        } else if (data) {
+        } else if (data !== null && data !== undefined) {
             requestData.data =
                 typeof data === 'object'
                     ? JSON.stringify(data)
@@ -304,17 +301,12 @@ class curlRequesticator {
             try {
                 result =
                     JSON.parse(responseLine);
-
-            } catch (parseError) {
+            } catch (error) {
                 console.error(
                     '[curlRequesticator] Invalid JSON from Python worker.'
                 );
 
-                console.error(
-                    '[curlRequesticator] Response was not valid JSON.'
-                );
-
-                throw parseError;
+                throw error;
             }
 
             if (result.error) {
@@ -335,7 +327,7 @@ class curlRequesticator {
 
             const bodyBuffer =
                 Buffer.from(
-                    result.body,
+                    result.body || '',
                     'base64'
                 );
 
@@ -359,7 +351,6 @@ class curlRequesticator {
                         JSON.parse(
                             bodyString
                         );
-
                 } catch {
                     responseBody =
                         bodyString;
@@ -376,7 +367,7 @@ class curlRequesticator {
                         result.statusCode,
 
                     headers:
-                        result.headers,
+                        result.headers || {},
 
                     data:
                         responseBody
@@ -396,6 +387,7 @@ class curlRequesticator {
     }
 }
 
+
 // ==========================================================
 // EDUCAKE REQUESTICATOR
 // ==========================================================
@@ -410,28 +402,10 @@ class Educake_Requesticator
         super(cookies);
 
         this.login = login;
-
         this.sessionToken = null;
     }
 
-    async sendRequest(
-        url,
-        data = null
-    ) {
-        console.log(
-            '[Educake_Requesticator] sendRequest called.'
-        );
-
-        console.log(
-            '[Educake_Requesticator] URL:',
-            url
-        );
-
-        console.log(
-            '[Educake_Requesticator] Method:',
-            data ? 'POST' : 'GET'
-        );
-
+    getHeaders() {
         const headers = [
             'accept: application/json;version=2',
             'accept-language: en-GB,en;q=0.9,en-US;q=0.8',
@@ -448,41 +422,33 @@ class Educake_Requesticator
             headers.push(
                 `authorization: Bearer ${this.sessionToken}`
             );
-
-            console.log(
-                '[Educake_Requesticator] Authorization header added.'
-            );
-        } else {
-            console.log(
-                '[Educake_Requesticator] No session token currently set.'
-            );
         }
 
+        return headers;
+    }
+
+    async sendDetailedRequest(
+        url,
+        data = null
+    ) {
         console.log(
-            '[Educake_Requesticator] Sending request...'
+            '[Educake_Requesticator] Detailed request:',
+            url
         );
 
         const response =
             await this._executeCurl(
                 url,
-                headers,
+                this.getHeaders(),
                 data,
                 {
                     returnHeaders: true
                 }
             );
 
-        // ==================================================
-        // SAFE RESPONSE DIAGNOSTICS
-        // ==================================================
-
-        console.log(
-            '[Educake_Requesticator] Request completed.'
-        );
-
         if (!response) {
             console.error(
-                '[Educake_Requesticator] Response is empty.'
+                '[Educake_Requesticator] Empty response.'
             );
 
             return null;
@@ -494,7 +460,7 @@ class Educake_Requesticator
         );
 
         console.log(
-            '[Educake_Requesticator] Response data type:',
+            '[Educake_Requesticator] Response type:',
             typeof response.data
         );
 
@@ -505,9 +471,7 @@ class Educake_Requesticator
         ) {
             console.log(
                 '[Educake_Requesticator] Response keys:',
-                Object.keys(
-                    response.data
-                )
+                Object.keys(response.data)
             );
         } else {
             console.log(
@@ -517,19 +481,41 @@ class Educake_Requesticator
 
         if (response.headers) {
             console.log(
-                '[Educake_Requesticator] Response headers received:',
-                Object.keys(
-                    response.headers
-                )
-            );
-        } else {
-            console.log(
-                '[Educake_Requesticator] No response headers returned.'
+                '[Educake_Requesticator] Response header names:',
+                Object.keys(response.headers)
             );
         }
 
-        // NEVER log response.data itself.
-        // It may contain authentication information.
+        return response;
+    }
+
+    async sendRequest(
+        url,
+        data = null
+    ) {
+        console.log(
+            '[Educake_Requesticator] sendRequest:',
+            url
+        );
+
+        const response =
+            await this._executeCurl(
+                url,
+                this.getHeaders(),
+                data,
+                {
+                    returnHeaders: true
+                }
+            );
+
+        if (!response) {
+            return null;
+        }
+
+        console.log(
+            '[Educake_Requesticator] HTTP status:',
+            response.status
+        );
 
         return response.data;
     }
