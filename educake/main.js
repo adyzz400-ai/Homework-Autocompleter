@@ -11,27 +11,66 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ButtonStyle,
-    EmbedBuilder,
     StringSelectMenuBuilder,
     ComponentType
 } = require('discord.js');
 
-const { emojis, footerText, footerIcon } = require('../startEmbeds/info.js');
+const {
+    emojis,
+    footerText,
+    footerIcon
+} = require('../startEmbeds/info.js');
+
 const getProgressBar = require('../utils/getProgressBar');
 const formatTime = require('../utils/formatTime');
-const { checkAccount, updateDB, updateStats } = require('../database/accounts');
-const { addToDbEducake, checkAnswer } = require('../database/educake');
-const { educakeLogin } = require('./puppeteer');
-const { geminiAnswer } = require('../gemini/educake/main');
-const progressTracker = require('../utils/progressTracker');
-const dueDate = require('../utils/dueDate');
-const Educake_Requesticator = require('./requesticator.js');
+
+const {
+    checkAccount,
+    updateDB,
+    updateStats
+} = require('../database/accounts');
+
+const {
+    addToDbEducake,
+    checkAnswer
+} = require('../database/educake');
+
+const {
+    educakeLogin
+} = require('./puppeteer');
+
+const {
+    geminiAnswer
+} = require('../gemini/educake/main');
+
+const progressTracker =
+    require('../utils/progressTracker');
+
+const dueDate =
+    require('../utils/dueDate');
+
+const Educake_Requesticator =
+    require('./requesticator.js');
+
+const shorten =
+    require('../utils/shorten');
+
+const {
+    validAccount,
+    useUpSlot
+} = require('../handlers/accountHandler');
+
+const getAIanswer =
+    require('../utils/getAIanswer');
+
+const puppetQueue =
+    require('../queues/puppeteerQueue.js');
+
+const config =
+    require('../config.json');
+
 const userSessions = {};
-const shorten = require('../utils/shorten');
-const { validAccount, useUpSlot } = require('../handlers/accountHandler');
-const getAIanswer = require('../utils/getAIanswer');
-const puppetQueue = require('../queues/puppeteerQueue.js');
-const config = require('../config.json');
+const userMenus = {};
 
 const EMBED_COLOR = 0x7a5b99;
 
@@ -45,6 +84,11 @@ const seperator = new SeparatorBuilder({
     spacing: SeparatorSpacingSize.Small
 });
 
+
+// ==========================================================
+// EDUCAKE AUTOCOMPLETER
+// ==========================================================
+
 async function educake_autocompleter(
     interaction,
     userSession,
@@ -52,7 +96,12 @@ async function educake_autocompleter(
     timeSettings,
     selectedQuizzes
 ) {
-    if (!selectedQuizzes || selectedQuizzes.length === 0) return;
+    if (
+        !selectedQuizzes ||
+        selectedQuizzes.length === 0
+    ) {
+        return;
+    }
 
     const cancel = new ButtonBuilder()
         .setCustomId('cancel')
@@ -60,12 +109,15 @@ async function educake_autocompleter(
         .setEmoji(emojis.x)
         .setStyle(ButtonStyle.Danger);
 
-    const row = new ActionRowBuilder().addComponents(cancel);
+    const row =
+        new ActionRowBuilder()
+            .addComponents(cancel);
 
-    const initialEmbed = new EmbedBuilder()
-        .setColor(EMBED_COLOR)
-        .setTitle('Educake Autocompleter')
-        .setDescription(`\`Starting...\``);
+    const initialEmbed =
+        new EmbedBuilder()
+            .setColor(EMBED_COLOR)
+            .setTitle('Educake Autocompleter')
+            .setDescription('`Starting...`');
 
     const sectionsProgress = [];
     let currentGroup = [];
@@ -88,13 +140,16 @@ async function educake_autocompleter(
 
     let totalCorrectCount = 0;
     let totalQuestionsCount = 0;
+
     const taskTimer = process.hrtime();
 
     const getTimeField = function () {
         return `> **Accuracy**: ${
             totalQuestionsCount
                 ? Math.round(
-                      (totalCorrectCount / totalQuestionsCount) * 100
+                      (totalCorrectCount /
+                          totalQuestionsCount) *
+                          100
                   )
                 : 0
         }%\n> **Time Spent**: ${formatTime(
@@ -102,10 +157,11 @@ async function educake_autocompleter(
         )}`;
     };
 
-    const progressUpdater = new progressTracker(
-        interaction,
-        getTimeField
-    );
+    const progressUpdater =
+        new progressTracker(
+            interaction,
+            getTimeField
+        );
 
     if (
         await progressUpdater.start(
@@ -120,44 +176,90 @@ async function educake_autocompleter(
     let cancelled = false;
 
     const collector =
-        progressUpdater.targetMessage.createMessageComponentCollector({
-            componentType: ComponentType.Button
-        });
+        progressUpdater.targetMessage
+            .createMessageComponentCollector({
+                componentType:
+                    ComponentType.Button
+            });
 
-    collector.on('collect', async (interaction) => {
-        await interaction.deferUpdate();
+    collector.on(
+        'collect',
+        async componentInteraction => {
+            await componentInteraction.deferUpdate();
 
-        if (interaction.customId === 'cancel') {
-            cancelled = true;
-            await progressUpdater.updateEmbed(`Cancelling...`);
+            if (
+                componentInteraction.customId ===
+                'cancel'
+            ) {
+                cancelled = true;
+
+                await progressUpdater.updateEmbed(
+                    'Cancelling...'
+                );
+            }
         }
-    });
+    );
 
     for (
         let quizIdx = 0;
         quizIdx < selectedQuizzes.length;
         quizIdx++
     ) {
-        if (cancelled) break;
+        if (cancelled) {
+            break;
+        }
 
-        let quizId = selectedQuizzes[quizIdx];
+        let quizId =
+            selectedQuizzes[quizIdx];
 
-        const quizAnswers = await userSession.sendRequest(
-            `https://my.educake.co.uk/api/student/quiz/${quizId}${
-                retake ? '/retake' : ''
-            }`
-        );
+        const quizAnswers =
+            await userSession.sendRequest(
+                `https://my.educake.co.uk/api/student/quiz/${quizId}${
+                    retake ? '/retake' : ''
+                }`
+            );
 
-        quizId = Object.values(quizAnswers.attempt)[0].id;
+        if (
+            !quizAnswers ||
+            !quizAnswers.attempt
+        ) {
+            throw new Error(
+                '[Educake] Invalid quiz response.'
+            );
+        }
+
+        const attemptIds =
+            Object.values(
+                quizAnswers.attempt
+            );
+
+        if (!attemptIds.length) {
+            throw new Error(
+                '[Educake] No quiz attempt found.'
+            );
+        }
+
+        quizId = attemptIds[0].id;
+
+        const attempt =
+            quizAnswers.attempt[quizId];
+
+        if (!attempt) {
+            throw new Error(
+                '[Educake] Quiz attempt data missing.'
+            );
+        }
 
         const assessmentId =
-            quizAnswers.attempt[quizId].assessmentId;
+            attempt.assessmentId;
 
         await userSession.sendRequest(
             'https://my.educake.co.uk/api/insights/quiz',
             {
-                assessmentId: Number(assessmentId),
-                attemptId: Number(quizId),
+                assessmentId:
+                    Number(assessmentId),
+                attemptId:
+                    Number(quizId),
                 questionId: 0,
                 phase: 'start',
                 active: 0,
@@ -167,32 +269,45 @@ async function educake_autocompleter(
         );
 
         const questionMap =
-            quizAnswers.attempt[quizId].questionMap;
+            attempt.questionMap;
 
         const unansweredQuestions =
-            quizAnswers.attempt[quizId].questions.filter(
-                (questionId) =>
-                    !questionMap[questionId].answer
+            attempt.questions.filter(
+                questionId =>
+                    !questionMap[
+                        questionId
+                    ].answer
             );
 
-        totalQuestionsCount += unansweredQuestions.length;
+        totalQuestionsCount +=
+            unansweredQuestions.length;
 
         for (
-            const [index, questionId] of unansweredQuestions.entries()
+            const [
+                index,
+                questionId
+            ] of unansweredQuestions.entries()
         ) {
-            if (cancelled) break;
+            if (cancelled) {
+                break;
+            }
 
-            const question = questionMap[questionId];
+            const question =
+                questionMap[questionId];
 
             const waitTime =
                 Math.floor(
                     Math.random() *
-                        (timeSettings.max -
+                        (
+                            timeSettings.max -
                             timeSettings.min +
-                            1)
-                ) + timeSettings.min;
+                            1
+                        )
+                ) +
+                timeSettings.min;
 
-            const waitTimeMs = waitTime * 1000;
+            const waitTimeMs =
+                waitTime * 1000;
 
             if (waitTime) {
                 const interval = 3000;
@@ -203,24 +318,33 @@ async function educake_autocompleter(
                         index + 1
                     } for Quiz ${
                         quizIdx + 1
-                    }/${selectedQuizzes.length} \`<t:${
-                        Math.floor(Date.now() / 1000) +
-                        waitTime
+                    }/${
+                        selectedQuizzes.length
+                    } \`<t:${
+                        Math.floor(
+                            Date.now() / 1000
+                        ) + waitTime
                     }:R>...`
                 );
 
                 while (
-                    elapsed < waitTimeMs &&
+                    elapsed <
+                        waitTimeMs &&
                     !cancelled
                 ) {
                     const timeLeft =
-                        waitTimeMs - elapsed;
+                        waitTimeMs -
+                        elapsed;
 
-                    await new Promise((res) =>
-                        setTimeout(
-                            res,
-                            Math.min(interval, timeLeft)
-                        )
+                    await new Promise(
+                        resolve =>
+                            setTimeout(
+                                resolve,
+                                Math.min(
+                                    interval,
+                                    timeLeft
+                                )
+                            )
                     );
 
                     elapsed += Math.min(
@@ -229,25 +353,39 @@ async function educake_autocompleter(
                     );
                 }
 
-                if (cancelled) break;
+                if (cancelled) {
+                    break;
+                }
             }
 
-            await progressUpdater.updateProgressBar(
-                quizIdx,
-                index + 1,
-                unansweredQuestions.length || 1
-            );
+            await progressUpdater
+                .updateProgressBar(
+                    quizIdx,
+                    index + 1,
+                    unansweredQuestions.length ||
+                        1
+                );
 
             await progressUpdater.updateEmbed(
                 `Running Question ${
                     index + 1
-               } /${unansweredQuestions.length} for Quiz ${
+                } /${
+                    unansweredQuestions.length
+                } for Quiz ${
                     quizIdx + 1
-                }/${selectedQuizzes.length}`
+                }/${
+                    selectedQuizzes.length
+                }`
             );
 
-            let DBanswer = await checkAnswer(questionId);
-            let aiModel = '2.5-flash-lite';
+            let DBanswer =
+                await checkAnswer(
+                    questionId
+                );
+
+            let aiModel =
+                '2.5-flash-lite';
+
             let givenAnswer = null;
 
             if (DBanswer === false) {
@@ -259,21 +397,23 @@ async function educake_autocompleter(
             }
 
             if (givenAnswer === null) {
-                givenAnswer = await getAIanswer(
-                    () =>
-                        geminiAnswer.answerQuestion(
-                            question,
-                            aiModel
-                        ),
-                    {
-                        stillUsing: async () => true
-                    },
-                    interaction,
-                    progressUpdater,
-                    60000,
-                    3000,
-                    () => cancelled
-                );
+                givenAnswer =
+                    await getAIanswer(
+                        () =>
+                            geminiAnswer.answerQuestion(
+                                question,
+                                aiModel
+                            ),
+                        {
+                            stillUsing:
+                                async () => true
+                        },
+                        interaction,
+                        progressUpdater,
+                        60000,
+                        3000,
+                        () => cancelled
+                    );
             }
 
             const questionResult =
@@ -284,37 +424,53 @@ async function educake_autocompleter(
                     }
                 );
 
-            if (questionResult?.answer?.result) {
+            if (
+                questionResult?.answer?.result
+            ) {
                 totalCorrectCount++;
 
                 if (
-                    [false, true, null].includes(DBanswer)
+                    [
+                        false,
+                        true,
+                        null
+                    ].includes(DBanswer)
                 ) {
                     await addToDbEducake(
                         questionId,
                         givenAnswer,
-                        aiModel === '2.5-pro'
+                        aiModel ===
+                            '2.5-pro'
                     );
                 }
             } else if (
-                [false, true, null].includes(DBanswer)
+                [
+                    false,
+                    true,
+                    null
+                ].includes(DBanswer)
             ) {
                 await addToDbEducake(
                     questionId,
                     null,
-                    aiModel === '2.5-pro'
+                    aiModel ===
+                        '2.5-pro'
                 );
             }
         }
 
-        await progressUpdater.updateProgressBar(
-            quizIdx,
-            unansweredQuestions.length,
-            unansweredQuestions.length || 1
-        );
+        await progressUpdater
+            .updateProgressBar(
+                quizIdx,
+                unansweredQuestions.length,
+                unansweredQuestions.length ||
+                    1
+            );
     }
 
-    await progressUpdater.updateEmbed(`Finished`);
+    await progressUpdater.updateEmbed(
+        'Finished'
+    );
 
     await updateStats(
         interaction.user.id,
@@ -325,21 +481,43 @@ async function educake_autocompleter(
     await progressUpdater.end();
 }
 
+
+// ==========================================================
+// EDUCAKE MENU
+// ==========================================================
+
 class educakeMainMenu {
-    constructor(interaction, timeSettings) {
-        this.interaction = interaction;
+    constructor(
+        interaction,
+        timeSettings
+    ) {
+        this.interaction =
+            interaction;
+
         this.itemsPerPage = 10;
+
         this.totalPages = 0;
-        this.menuStage = 'current';
-        this.timeSettings = timeSettings;
-        this.mainMenuSection = this.createMainMenu();
+
+        this.menuStage =
+            'current';
+
+        this.timeSettings =
+            timeSettings;
+
+        this.mainMenuSection =
+            this.createMainMenu();
+
         this.container = null;
+
         this.accountId = null;
+
+        this.selectedQuizzes = [];
     }
 
     createMainMenu() {
-        return new TextDisplayBuilder().setContent(
-            `### Educake Homework Selection
+        return new TextDisplayBuilder()
+            .setContent(
+                `### Educake Homework Selection
 Select one of the homeworks below and it will automatically be completed for you!
 
 **❓ What is Time?**
@@ -348,104 +526,174 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
 **⏰ Time**: ${this.timeSettings.min}-${this.timeSettings.max} Seconds Per Question
 
 **Important: Retry the Homework a second time to get a better accuracy**`
-        );
+            );
     }
 
     async updateMainMenu() {
-        this.mainMenuSection = this.createMainMenu();
+        this.mainMenuSection =
+            this.createMainMenu();
 
-        this.container.components[0].data.content =
-            this.mainMenuSection.data.content;
+        if (
+            this.container?.components?.[0]
+                ?.data
+        ) {
+            this.container
+                .components[0]
+                .data.content =
+                this.mainMenuSection
+                    .data.content;
+        }
 
-        await this.interaction.editReply({
-            components: [this.container]
-        });
+        if (this.container) {
+            await this.interaction.editReply(
+                {
+                    components: [
+                        this.container
+                    ]
+                }
+            );
+        }
     }
 
-    createNavigationButtons(page, disabled = false) {
-        const skipBackButton = new ButtonBuilder()
-            .setCustomId('menu_skip_back')
-            .setLabel('◀◀')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(
-                disabled || page === 0
-            );
+    createNavigationButtons(
+        page,
+        disabled = false
+    ) {
+        const skipBackButton =
+            new ButtonBuilder()
+                .setCustomId(
+                    'menu_skip_back'
+                )
+                .setLabel('◀◀')
+                .setStyle(
+                    ButtonStyle.Secondary
+                )
+                .setDisabled(
+                    disabled ||
+                        page === 0
+                );
 
-        const prevButton = new ButtonBuilder()
-            .setCustomId('menu_prev')
-            .setLabel('Previous')
-            .setEmoji('◀️')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(
-                disabled || page === 0
-            );
+        const prevButton =
+            new ButtonBuilder()
+                .setCustomId(
+                    'menu_prev'
+                )
+                .setLabel('Previous')
+                .setEmoji('◀️')
+                .setStyle(
+                    ButtonStyle.Secondary
+                )
+                .setDisabled(
+                    disabled ||
+                        page === 0
+                );
 
-        const nextButton = new ButtonBuilder()
-            .setCustomId('menu_next')
-            .setLabel('Next')
-            .setEmoji('▶️')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(
-                disabled ||
-                    page >= this.totalPages - 1
-            );
+        const nextButton =
+            new ButtonBuilder()
+                .setCustomId(
+                    'menu_next'
+                )
+                .setLabel('Next')
+                .setEmoji('▶️')
+                .setStyle(
+                    ButtonStyle.Secondary
+                )
+                .setDisabled(
+                    disabled ||
+                        page >=
+                            this.totalPages -
+                                1
+                );
 
-        const skipForwardButton = new ButtonBuilder()
-            .setCustomId('menu_skip_forward')
-            .setLabel('▶▶')
-            .setStyle(ButtonStyle.Secondary)
-            .setDisabled(
-                disabled ||
-                    page >= this.totalPages - 1
-            );
+        const skipForwardButton =
+            new ButtonBuilder()
+                .setCustomId(
+                    'menu_skip_forward'
+                )
+                .setLabel('▶▶')
+                .setStyle(
+                    ButtonStyle.Secondary
+                )
+                .setDisabled(
+                    disabled ||
+                        page >=
+                            this.totalPages -
+                                1
+                );
 
-        const timeBtn = new ButtonBuilder()
-            .setCustomId('set_time')
-            .setLabel('Set Time')
-            .setEmoji(emojis.queue)
-            .setStyle(ButtonStyle.Primary)
-            .setDisabled(disabled);
+        const timeBtn =
+            new ButtonBuilder()
+                .setCustomId('set_time')
+                .setLabel('Set Time')
+                .setEmoji(emojis.queue)
+                .setStyle(
+                    ButtonStyle.Primary
+                )
+                .setDisabled(disabled);
 
         let quizzesButton;
 
-        switch (this.menuStage) {
-            case 'current':
-                quizzesButton = new ButtonBuilder()
-                    .setCustomId('past_quizzes')
-                    .setLabel('Past Quizzes')
+        if (
+            this.menuStage ===
+            'current'
+        ) {
+            quizzesButton =
+                new ButtonBuilder()
+                    .setCustomId(
+                        'past_quizzes'
+                    )
+                    .setLabel(
+                        'Past Quizzes'
+                    )
                     .setEmoji('📊')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setDisabled(disabled);
-                break;
-
-            case 'old':
-                quizzesButton = new ButtonBuilder()
-                    .setCustomId('current_quizzes')
-                    .setLabel('Current Quizzes')
+                    .setStyle(
+                        ButtonStyle.Secondary
+                    )
+                    .setDisabled(
+                        disabled
+                    );
+        } else {
+            quizzesButton =
+                new ButtonBuilder()
+                    .setCustomId(
+                        'current_quizzes'
+                    )
+                    .setLabel(
+                        'Current Quizzes'
+                    )
                     .setEmoji('📊')
-                    .setStyle(ButtonStyle.Secondary)
-                    .setDisabled(disabled);
-                break;
+                    .setStyle(
+                        ButtonStyle.Secondary
+                    )
+                    .setDisabled(
+                        disabled
+                    );
         }
 
         const saveAccountBtnCopy =
-            ButtonBuilder.from(saveAccountBtn);
+            ButtonBuilder.from(
+                saveAccountBtn
+            );
 
-        saveAccountBtnCopy.setDisabled(disabled);
+        saveAccountBtnCopy.setDisabled(
+            disabled
+        );
 
         return [
-            new ActionRowBuilder().addComponents(
-                skipBackButton,
-                prevButton,
-                nextButton,
-                skipForwardButton
-            ),
+            new ActionRowBuilder()
+                .addComponents(
+                    skipBackButton,
+                    prevButton,
+                    nextButton,
+                    skipForwardButton
+                ),
 
-            new ActionRowBuilder().addComponents(
-                timeBtn,
-                saveAccountBtnCopy,
-                quizzesButton
-            )
+            new ActionRowBuilder()
+                .addComponents(
+                    timeBtn,
+                    saveAccountBtnCopy,
+                    quizzesButton
+                )
         ];
     }
 
@@ -455,117 +703,159 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
         currentPage,
         disabledAll = false
     ) {
-        const itemsPerPage = 10;
-
         if (
             !latestQuizes ||
             !latestQuizes.attempts ||
-            typeof latestQuizes.attempts !== 'object'
+            typeof latestQuizes.attempts !==
+                'object'
         ) {
             console.error(
-                '[Educake] Invalid quiz response passed to educakeMenu:',
+                '[Educake] Invalid quiz response:',
                 latestQuizes
             );
 
-            const errorSection =
-                new TextDisplayBuilder().setContent(
-                    `### ❌ Unable to Load Homework
+            const section =
+                new TextDisplayBuilder()
+                    .setContent(
+                        `### ❌ Unable to Load Homework
 Educake did not return a valid homework list. Please try logging in again.`
-                );
-
-            const errorContainer =
-                new ContainerBuilder()
-                    .setAccentColor(0xFF474D)
-                    .addTextDisplayComponents(
-                        errorSection.data
                     );
 
-            await this.interaction.editReply({
-                flags: 32768 | 64,
-                components: [errorContainer]
-            });
+            const container =
+                new ContainerBuilder()
+                    .setAccentColor(
+                        0xff474d
+                    )
+                    .addTextDisplayComponents(
+                        section.data
+                    );
+
+            await this.interaction.editReply(
+                {
+                    flags: 32768 | 64,
+                    components: [
+                        container
+                    ]
+                }
+            );
 
             return null;
         }
 
-        const quizzes = Object.values(
-            latestQuizes.attempts
-        );
-
-        const totalPages = Math.max(
-            1,
-            Math.ceil(
-                quizzes.length /
-                    itemsPerPage
-            )
-        );
-
-        this.totalPages = totalPages;
-
-        function createMenuDropdown(page) {
-            const start = page * itemsPerPage;
-            const end = start + itemsPerPage;
-
-            const pageQuizzes = quizzes.slice(
-                start,
-                end
+        const quizzes =
+            Object.values(
+                latestQuizes.attempts
             );
 
-            select = new StringSelectMenuBuilder()
-                .setCustomId('educake_homework')
-                .setPlaceholder(
-                    `Choose up to ${
-                        config.max_homework_selection
-                            ?.educake || 6
-                    } Homeworks (Page ${
-                        page + 1
-                    }/${totalPages})`
+        const totalPages =
+            Math.max(
+                1,
+                Math.ceil(
+                    quizzes.length /
+                        this.itemsPerPage
                 )
-                .setMinValues(0)
-                .setMaxValues(
-                    Math.min(
-                        config.max_homework_selection
-                            ?.educake || 6,
-                        pageQuizzes.length || 1
-                    )
-                )
-                .setDisabled(disabledAll);
+            );
 
-            for (const quiz of pageQuizzes) {
-                const option =
-                    new StringSelectMenuOptionBuilder()
-                        .setLabel(
-                            shorten(quiz.name, 100)
+        this.totalPages =
+            totalPages;
+
+        const createMenuDropdown =
+            page => {
+                const start =
+                    page *
+                    this.itemsPerPage;
+
+                const end =
+                    start +
+                    this.itemsPerPage;
+
+                const pageQuizzes =
+                    quizzes.slice(
+                        start,
+                        end
+                    );
+
+                select =
+                    new StringSelectMenuBuilder()
+                        .setCustomId(
+                            'educake_homework'
                         )
-                        .setDescription(
-                            `${quiz.questionCount
-                                ? Math.round(
-                                      (quiz.correctCount /
-                                          quiz.questionCount) *
-                                          100
-                                  )
-                                : 0}% • ${
-                                quiz.isRetake
-                                    ? '(Retake)'
-                                    : dueDate(
-                                          new Date(
-                                              quiz.dueDate
+                        .setPlaceholder(
+                            `Choose up to ${
+                                config
+                                    .max_homework_selection
+                                    ?.educake ||
+                                6
+                            } Homeworks (Page ${
+                                page + 1
+                            }/${totalPages})`
+                        )
+                        .setMinValues(0)
+                        .setMaxValues(
+                            Math.min(
+                                config
+                                    .max_homework_selection
+                                    ?.educake ||
+                                    6,
+                                pageQuizzes.length ||
+                                    1
+                            )
+                        )
+                        .setDisabled(
+                            disabledAll
+                        );
+
+                for (
+                    const quiz of pageQuizzes
+                ) {
+                    const option =
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel(
+                                shorten(
+                                    quiz.name,
+                                    100
+                                )
+                            )
+                            .setDescription(
+                                `${
+                                    quiz.questionCount
+                                        ? Math.round(
+                                              (quiz.correctCount /
+                                                  quiz.questionCount) *
+                                                  100
                                           )
-                                      )
-                            }`
-                        )
-                        .setValue(String(quiz.id));
+                                        : 0
+                                }% • ${
+                                    quiz.isRetake
+                                        ? '(Retake)'
+                                        : dueDate(
+                                              new Date(
+                                                  quiz.dueDate
+                                              )
+                                          )
+                                }`
+                            )
+                            .setValue(
+                                String(
+                                    quiz.id
+                                )
+                            );
 
-                select.addOptions(option);
-            }
+                    select.addOptions(
+                        option
+                    );
+                }
 
-            return select;
-        }
+                return select;
+            };
 
         const selectRow =
-            new ActionRowBuilder().addComponents(
-                createMenuDropdown(currentPage)
-            );
+            new ActionRowBuilder()
+                .addComponents(
+                    createMenuDropdown(
+                        currentPage
+                    )
+                );
 
         const buttonRows =
             this.createNavigationButtons(
@@ -573,35 +863,45 @@ Educake did not return a valid homework list. Please try logging in again.`
                 disabledAll
             );
 
-        const container = new ContainerBuilder()
-            .setAccentColor(0x7a5b99)
-            .addTextDisplayComponents(
-                this.mainMenuSection.data
-            );
+        const container =
+            new ContainerBuilder()
+                .setAccentColor(
+                    EMBED_COLOR
+                )
+                .addTextDisplayComponents(
+                    this.mainMenuSection.data
+                );
 
         container.addSeparatorComponents(
             seperator
         );
 
-        if (selectRow.components[0].options.length) {
+        if (
+            selectRow.components[0]
+                .options.length
+        ) {
             container.addActionRowComponents(
                 selectRow
             );
         }
 
-        buttonRows.forEach((row) =>
-            container.addActionRowComponents(row)
+        buttonRows.forEach(row =>
+            container.addActionRowComponents(
+                row
+            )
         );
 
-        this.container = container;
+        this.container =
+            container;
 
-        const message_sent =
-            await this.interaction.editReply({
+        return await this.interaction.editReply(
+            {
                 flags: 32768 | 64,
-                components: [container]
-            });
-
-        return message_sent;
+                components: [
+                    container
+                ]
+            }
+        );
     }
 
     async main() {
@@ -616,79 +916,54 @@ Educake did not return a valid homework list. Please try logging in again.`
             );
         }
 
-        console.log('[Educake] Getting account information...');
+        console.log(
+            '[Educake] Getting account information...'
+        );
 
         const userInfo =
             await userSession.sendRequest(
                 'https://my.educake.co.uk/api/me'
             );
 
-        if (!userInfo || !userInfo.id) {
+        if (
+            !userInfo ||
+            !userInfo.id
+        ) {
             throw new Error(
-                '[Educake] Educake API returned invalid account information.'
+                '[Educake] Invalid Educake account response.'
             );
         }
 
-        this.accountId = String(userInfo.id);
+        this.accountId =
+            String(userInfo.id);
 
-        console.log('[Educake] Account ID received.');
+        console.log(
+            '[Educake] Account ID received.'
+        );
 
-        console.log('[Educake] Getting current quizzes...');
+        console.log(
+            '[Educake] Getting current quizzes...'
+        );
 
-        let latestQuizes =
+        const latestQuizes =
             await userSession.sendRequest(
                 'https://my.educake.co.uk/api/student/quiz?type=teacher&subject=0&completed=0&excludeRetakes=0&includeArchived=0'
             );
 
-        /*
-         * Defensive check:
-         * Educake may return an unexpected response instead of
-         * { attempts: ... }. Never call Object.keys/Object.values
-         * until attempts has been verified.
-         */
         if (
             !latestQuizes ||
             !latestQuizes.attempts ||
-            typeof latestQuizes.attempts !== 'object'
+            typeof latestQuizes.attempts !==
+                'object'
         ) {
             console.error(
-                '[Educake] Invalid current quiz response.'
+                '[Educake] Invalid current quiz response:',
+                latestQuizes
             );
 
-            console.error(
-                '[Educake] Response type:',
-                typeof latestQuizes
+            throw new Error(
+                '[Educake] Educake returned an invalid homework list.'
             );
-
-            if (
-                latestQuizes &&
-                typeof latestQuizes === 'object'
-            ) {
-                console.error(
-                    '[Educake] Response keys:',
-                    Object.keys(latestQuizes)
-                );
-            }
-
-            const errorSection =
-                new TextDisplayBuilder().setContent(
-                    `### ❌ Unable to Load Homework
-Educake did not return your homework list. Please try logging in again.`
-                );
-
-            const errorContainer =
-                new ContainerBuilder()
-                    .setAccentColor(0xFF474D)
-                    .addTextDisplayComponents(
-                        errorSection.data
-                    );
-
-            await this.interaction.editReply({
-                flags: 32768 | 64,
-                components: [errorContainer]
-            });
-
-            return;
         }
 
         const quizCount =
@@ -700,588 +975,611 @@ Educake did not return your homework list. Please try logging in again.`
             `[Educake] Current quizzes received: ${quizCount}`
         );
 
-        let select =
+        const select =
             new StringSelectMenuBuilder()
-                .setCustomId('educake_homework')
+                .setCustomId(
+                    'educake_homework'
+                )
                 .setPlaceholder(
                     `Choose up to ${
-                        config.max_homework_selection
-                            ?.educake || 6
+                        config
+                            .max_homework_selection
+                            ?.educake ||
+                        6
                     } homeworks`
                 )
                 .setMinValues(0)
                 .setMaxValues(
                     Math.min(
-                        config.max_homework_selection
-                            ?.educake || 6,
+                        config
+                            .max_homework_selection
+                            ?.educake ||
+                            6,
                         quizCount || 1
                     )
                 );
 
         let currentPage = 0;
 
-        const message_sent =
+        const messageSent =
             await this.educakeMenu(
                 select,
                 latestQuizes,
                 currentPage
             );
 
-        if (!message_sent) {
+        if (!messageSent) {
             return;
         }
 
         const collector =
-            message_sent.createMessageComponentCollector(
+            messageSent.createMessageComponentCollector(
                 {
-                    time: 300_000
+                    time: 300000
                 }
             );
 
         collector.on(
             'collect',
-            async (componentInteraction) => {
-                if (
-                    componentInteraction.isStringSelectMenu()
-                ) {
-                    await componentInteraction.deferUpdate();
+            async componentInteraction => {
+                try {
+                    if (
+                        componentInteraction.isStringSelectMenu()
+                    ) {
+                        await componentInteraction.deferUpdate();
 
-                    this.selectedQuizzes =
-                        componentInteraction.values;
+                        this.selectedQuizzes =
+                            componentInteraction.values;
 
-                    const latestAttempts =
-                        latestQuizes.attempts || {};
+                        const latestAttempts =
+                            latestQuizes.attempts ||
+                            {};
 
-                    const disabledSelect =
-                        new StringSelectMenuBuilder()
-                            .setCustomId(
-                                'educake_homework'
-                            )
-                            .setPlaceholder(
-                                `Choose up to ${
-                                    config
-                                        .max_homework_selection
-                                        ?.educake || 6
-                                } homeworks`
-                            )
-                            .setMinValues(0)
-                            .setMaxValues(
-                                Math.min(
-                                    config
-                                        .max_homework_selection
-                                        ?.educake || 6,
-                                    Object.keys(
-                                        latestAttempts
-                                    ).length || 1
-                                )
+                        const quizzes =
+                            Object.values(
+                                latestAttempts
                             );
 
-                    const itemsPerPage = 10;
+                        const start =
+                            currentPage *
+                            this.itemsPerPage;
 
-                    const quizzes =
-                        Object.values(
-                            latestAttempts
-                        );
+                        const pageQuizzes =
+                            quizzes.slice(
+                                start,
+                                start +
+                                    this.itemsPerPage
+                            );
 
-                    const start =
-                        currentPage *
-                        itemsPerPage;
-
-                    const end =
-                        start + itemsPerPage;
-
-                    const pageQuizzes =
-                        quizzes.slice(
-                            start,
-                            end
-                        );
-
-                    for (
-                        const quiz of pageQuizzes
-                    ) {
-                        const option =
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(
-                                    shorten(
-                                        quiz.name,
-                                        100
+                        const disabledSelect =
+                            new StringSelectMenuBuilder()
+                                .setCustomId(
+                                    'educake_homework'
+                                )
+                                .setPlaceholder(
+                                    'Homework selected'
+                                )
+                                .setMinValues(0)
+                                .setMaxValues(
+                                    Math.min(
+                                        config
+                                            .max_homework_selection
+                                            ?.educake ||
+                                            6,
+                                        pageQuizzes.length ||
+                                            1
                                     )
-                                )
-                                .setDescription(
-                                    `0% • ${
-                                        quiz.isRetake
-                                            ? '(Retake)'
-                                            : dueDate(
-                                                  new Date(
-                                                      quiz.dueDate
-                                                  )
-                                              )
-                                    }`
-                                )
-                                .setValue(
-                                    String(quiz.id)
                                 );
 
-                        if (
-                            componentInteraction.values.includes(
-                                String(quiz.id)
-                            )
+                        for (
+                            const quiz of pageQuizzes
                         ) {
-                            option.setDefault(true);
+                            const option =
+                                new StringSelectMenuOptionBuilder()
+                                    .setLabel(
+                                        shorten(
+                                            quiz.name,
+                                            100
+                                        )
+                                    )
+                                    .setDescription(
+                                        `${
+                                            quiz.questionCount
+                                                ? Math.round(
+                                                      (quiz.correctCount /
+                                                          quiz.questionCount) *
+                                                          100
+                                                  )
+                                                : 0
+                                        }% • ${
+                                            quiz.isRetake
+                                                ? '(Retake)'
+                                                : dueDate(
+                                                      new Date(
+                                                          quiz.dueDate
+                                                      )
+                                                  )
+                                        }`
+                                    )
+                                    .setValue(
+                                        String(
+                                            quiz.id
+                                        )
+                                    );
+
+                            if (
+                                componentInteraction.values.includes(
+                                    String(
+                                        quiz.id
+                                    )
+                                )
+                            ) {
+                                option.setDefault(
+                                    true
+                                );
+                            }
+
+                            disabledSelect.addOptions(
+                                option
+                            );
                         }
 
-                        disabledSelect.addOptions(
-                            option
+                        const container =
+                            new ContainerBuilder()
+                                .setAccentColor(
+                                    EMBED_COLOR
+                                )
+                                .addTextDisplayComponents(
+                                    this.mainMenuSection.data
+                                )
+                                .addSeparatorComponents(
+                                    seperator
+                                )
+                                .addActionRowComponents(
+                                    new ActionRowBuilder()
+                                        .addComponents(
+                                            disabledSelect
+                                        )
+                                );
+
+                        this.createNavigationButtons(
+                            currentPage,
+                            false
+                        ).forEach(row =>
+                            container.addActionRowComponents(
+                                row
+                            )
+                        );
+
+                        if (
+                            this.selectedQuizzes
+                                .length > 0
+                        ) {
+                            const startButton =
+                                new ButtonBuilder()
+                                    .setCustomId(
+                                        'start_educake'
+                                    )
+                                    .setLabel(
+                                        'Start'
+                                    )
+                                    .setEmoji(
+                                        emojis.tick
+                                    )
+                                    .setStyle(
+                                        ButtonStyle.Success
+                                    );
+
+                            container.addActionRowComponents(
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        startButton
+                                    )
+                            );
+                        }
+
+                        await componentInteraction.editReply(
+                            {
+                                components: [
+                                    container
+                                ]
+                            }
                         );
                     }
+
+                    else if (
+                        componentInteraction.isButton()
+                    ) {
+                        const customId =
+                            componentInteraction.customId;
+
+                        console.log(
+                            '[Educake] Button:',
+                            customId
+                        );
+
+                        if (
+                            customId ===
+                            'start_educake'
+                        ) {
+                            if (
+                                !this.selectedQuizzes
+                                    ?.length
+                            ) {
+                                return;
+                            }
+
+                            await componentInteraction.deferUpdate();
+
+                            await this.educakeMenu(
+                                select,
+                                latestQuizes,
+                                currentPage,
+                                true
+                            );
+
+                            if (
+                                await useUpSlot(
+                                    componentInteraction,
+                                    'educake',
+                                    this.accountId
+                                )
+                            ) {
+                                return;
+                            }
+
+                            await educake_autocompleter(
+                                componentInteraction,
+                                userSession,
+                                this.menuStage ===
+                                    'old',
+                                this.timeSettings,
+                                this.selectedQuizzes
+                            );
+                        }
+
+                        else if (
+                            customId ===
+                            'past_quizzes'
+                        ) {
+                            await componentInteraction.deferUpdate();
+
+                            const pastQuizzes =
+                                await userSession.sendRequest(
+                                    'https://my.educake.co.uk/api/student/quiz?type=teacher&subject=0&completed=1&excludeRetakes=0&includeArchived=0'
+                                );
+
+                            if (
+                                !pastQuizzes?.attempts
+                            ) {
+                                console.error(
+                                    '[Educake] Invalid past quiz response.'
+                                );
+                                return;
+                            }
+
+                            this.menuStage =
+                                'old';
+
+                            currentPage = 0;
+
+                            const newSelect =
+                                new StringSelectMenuBuilder()
+                                    .setCustomId(
+                                        'educake_homework'
+                                    )
+                                    .setPlaceholder(
+                                        'Choose past homeworks'
+                                    )
+                                    .setMinValues(0)
+                                    .setMaxValues(
+                                        Math.min(
+                                            config
+                                                .max_homework_selection
+                                                ?.educake ||
+                                                6,
+                                            Object.keys(
+                                                pastQuizzes.attempts
+                                            ).length ||
+                                                1
+                                        )
+                                    );
+
+                            await this.educakeMenu(
+                                newSelect,
+                                pastQuizzes,
+                                currentPage
+                            );
+                        }
+
+                        else if (
+                            customId ===
+                            'current_quizzes'
+                        ) {
+                            await componentInteraction.deferUpdate();
+
+                            const currentQuizzes =
+                                await userSession.sendRequest(
+                                    'https://my.educake.co.uk/api/student/quiz?type=teacher&subject=0&completed=0&excludeRetakes=0&includeArchived=0'
+                                );
+
+                            if (
+                                !currentQuizzes?.attempts
+                            ) {
+                                console.error(
+                                    '[Educake] Invalid current quiz response.'
+                                );
+                                return;
+                            }
+
+                            this.menuStage =
+                                'current';
+
+                            currentPage = 0;
+
+                            const newSelect =
+                                new StringSelectMenuBuilder()
+                                    .setCustomId(
+                                        'educake_homework'
+                                    )
+                                    .setPlaceholder(
+                                        'Choose current homeworks'
+                                    )
+                                    .setMinValues(0)
+                                    .setMaxValues(
+                                        Math.min(
+                                            config
+                                                .max_homework_selection
+                                                ?.educake ||
+                                                6,
+                                            Object.keys(
+                                                currentQuizzes.attempts
+                                            ).length ||
+                                                1
+                                        )
+                                    );
+
+                            await this.educakeMenu(
+                                newSelect,
+                                currentQuizzes,
+                                currentPage
+                            );
+                        }
+
+                        else if (
+                            customId.startsWith(
+                                'menu'
+                            )
+                        ) {
+                            await componentInteraction.deferUpdate();
+
+                            if (
+                                customId ===
+                                'menu_prev'
+                            ) {
+                                currentPage =
+                                    Math.max(
+                                        0,
+                                        currentPage -
+                                            1
+                                    );
+                            }
+
+                            else if (
+                                customId ===
+                                'menu_skip_back'
+                            ) {
+                                currentPage = 0;
+                            }
+
+                            else if (
+                                customId ===
+                                'menu_next'
+                            ) {
+                                currentPage =
+                                    Math.min(
+                                        this.totalPages -
+                                            1,
+                                        currentPage +
+                                            1
+                                    );
+                            }
+
+                            else if (
+                                customId ===
+                                'menu_skip_forward'
+                            ) {
+                                currentPage =
+                                    this.totalPages -
+                                    1;
+                            }
+
+                            await this.educakeMenu(
+                                select,
+                                latestQuizes,
+                                currentPage
+                            );
+                        }
+
+                        else if (
+                            customId ===
+                            'save_account'
+                        ) {
+                            const modal =
+                                new ModalBuilder()
+                                    .setCustomId(
+                                        'save_account_educake'
+                                    )
+                                    .setTitle(
+                                        'Save Account'
+                                    );
+
+                            const input =
+                                new TextInputBuilder()
+                                    .setCustomId(
+                                        'master_password'
+                                    )
+                                    .setLabel(
+                                        'Master Password'
+                                    )
+                                    .setStyle(
+                                        TextInputStyle.Short
+                                    )
+                                    .setRequired(
+                                        true
+                                    );
+
+                            modal.addComponents(
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        input
+                                    )
+                            );
+
+                            await componentInteraction.showModal(
+                                modal
+                            );
+                        }
+
+                        else if (
+                            customId ===
+                            'set_time'
+                        ) {
+                            const modal =
+                                new ModalBuilder()
+                                    .setCustomId(
+                                        'educake_set_time'
+                                    )
+                                    .setTitle(
+                                        'Set Time'
+                                    );
+
+                            const input =
+                                new TextInputBuilder()
+                                    .setCustomId(
+                                        'time_min'
+                                    )
+                                    .setLabel(
+                                        'Time Min'
+                                    )
+                                    .setStyle(
+                                        TextInputStyle.Short
+                                    )
+                                    .setPlaceholder(
+                                        '0-180'
+                                    )
+                                    .setRequired(
+                                        true
+                                    );
+
+                            const input1 =
+                                new TextInputBuilder()
+                                    .setCustomId(
+                                        'time_max'
+                                    )
+                                    .setLabel(
+                                        'Time Max'
+                                    )
+                                    .setStyle(
+                                        TextInputStyle.Short
+                                    )
+                                    .setPlaceholder(
+                                        '0-180'
+                                    )
+                                    .setRequired(
+                                        true
+                                    );
+
+                            modal.addComponents(
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        input
+                                    ),
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        input1
+                                    )
+                            );
+
+                            await componentInteraction.showModal(
+                                modal
+                            );
+                        }
+                    }
+                } catch (error) {
+                    console.error(
+                        '[Educake] Menu interaction error:',
+                        error
+                    );
+                }
+            }
+        );
+
+        collector.on(
+            'end',
+            async () => {
+                try {
+                    select.setDisabled(true);
+
+                    const row =
+                        new ActionRowBuilder()
+                            .addComponents(
+                                select
+                            );
 
                     const container =
                         new ContainerBuilder()
                             .setAccentColor(
-                                0x7a5b99
+                                EMBED_COLOR
                             )
                             .addTextDisplayComponents(
-                                this.mainMenuSection
-                                    .data
+                                this.mainMenuSection.data
                             )
                             .addSeparatorComponents(
                                 seperator
                             )
                             .addActionRowComponents(
-                                new ActionRowBuilder().addComponents(
-                                    disabledSelect
-                                )
+                                row
                             );
 
                     this.createNavigationButtons(
                         currentPage,
-                        false
-                    ).forEach((row) => {
+                        true
+                    ).forEach(buttonRow =>
                         container.addActionRowComponents(
-                            row
-                        );
-                    });
+                            buttonRow
+                        )
+                    );
 
-                    if (
-                        this.selectedQuizzes &&
-                        this.selectedQuizzes.length >
-                            0
-                    ) {
-                        const startButton =
-                            new ButtonBuilder()
-                                .setCustomId(
-                                    'start_educake'
-                                )
-                                .setLabel(
-                                    'Start'
-                                )
-                                .setStyle(
-                                    ButtonStyle.Success
-                                )
-                                .setEmoji(
-                                    emojis.tick
-                                );
+                    this.container =
+                        container;
 
-                        container.addActionRowComponents(
-                            new ActionRowBuilder().addComponents(
-                                startButton
-                            )
-                        );
-                    }
-
-                    select = disabledSelect;
-
-                    await componentInteraction.editReply(
+                    await this.interaction.editReply(
                         {
                             components: [
                                 container
                             ]
                         }
                     );
-                } else if (
-                    componentInteraction.isButton()
-                ) {
-                    console.log(
-                        componentInteraction.customId
+                } catch (error) {
+                    console.error(
+                        '[Educake] Collector end error:',
+                        error
                     );
-
-                    if (
-                        componentInteraction.customId ===
-                        'start_educake'
-                    ) {
-                        if (
-                            !this.selectedQuizzes ||
-                            this.selectedQuizzes.length ===
-                                0
-                        ) {
-                            return;
-                        }
-
-                        await componentInteraction.deferUpdate();
-
-                        await this.educakeMenu(
-                            select,
-                            latestQuizes,
-                            currentPage,
-                            true
-                        );
-
-                        if (
-                            await useUpSlot(
-                                componentInteraction,
-                                'educake',
-                                this.accountId
-                            )
-                        ) {
-                            return;
-                        }
-
-                        await educake_autocompleter(
-                            componentInteraction,
-                            userSession,
-                            this.menuStage ===
-                                'old',
-                            this.timeSettings,
-                            this.selectedQuizzes
-                        );
-                    } else if (
-                        componentInteraction.customId ===
-                        'past_quizzes'
-                    ) {
-                        await componentInteraction.deferUpdate();
-
-                        latestQuizes =
-                            await userSession.sendRequest(
-                                'https://my.educake.co.uk/api/student/quiz?type=teacher&subject=0&completed=1&excludeRetakes=0&includeArchived=0'
-                            );
-
-                        if (
-                            !latestQuizes ||
-                            !latestQuizes.attempts ||
-                            typeof latestQuizes.attempts !== 'object'
-                        ) {
-                            console.error(
-                                '[Educake] Invalid past quiz response.'
-                            );
-
-                            console.error(
-                                '[Educake] Response type:',
-                                typeof latestQuizes
-                            );
-
-                            if (
-                                latestQuizes &&
-                                typeof latestQuizes === 'object'
-                            ) {
-                                console.error(
-                                    '[Educake] Response keys:',
-                                    Object.keys(latestQuizes)
-                                );
-                            }
-
-                            return;
-                        }
-
-                        select =
-                            new StringSelectMenuBuilder()
-                                .setCustomId(
-                                    'educake_homework'
-                                )
-                                .setPlaceholder(
-                                    `Choose up to ${
-                                        config
-                                            .max_homework_selection
-                                            ?.educake ||
-                                        6
-                                    } homeworks`
-                                )
-                                .setMinValues(0)
-                                .setMaxValues(
-                                    Math.min(
-                                        config
-                                            .max_homework_selection
-                                            ?.educake ||
-                                            6,
-                                        Object.keys(
-                                            latestQuizes
-                                                .attempts
-                                        ).length ||
-                                            1
-                                    )
-                                );
-
-                        this.menuStage = 'old';
-                        currentPage = 0;
-
-                        await this.educakeMenu(
-                            select,
-                            latestQuizes,
-                            currentPage
-                        );
-
-                    } else if (
-                        componentInteraction.customId ===
-                        'current_quizzes'
-                    ) {
-                        await componentInteraction.deferUpdate();
-
-                        latestQuizes =
-                            await userSession.sendRequest(
-                                'https://my.educake.co.uk/api/student/quiz?type=teacher&subject=0&completed=0&excludeRetakes=0&includeArchived=0'
-                            );
-
-                        if (
-                            !latestQuizes ||
-                            !latestQuizes.attempts ||
-                            typeof latestQuizes.attempts !== 'object'
-                        ) {
-                            console.error(
-                                '[Educake] Invalid current quiz response.'
-                            );
-
-                            console.error(
-                                '[Educake] Response type:',
-                                typeof latestQuizes
-                            );
-
-                            if (
-                                latestQuizes &&
-                                typeof latestQuizes === 'object'
-                            ) {
-                                console.error(
-                                    '[Educake] Response keys:',
-                                    Object.keys(latestQuizes)
-                                );
-                            }
-
-                            return;
-                        }
-
-                        select =
-                            new StringSelectMenuBuilder()
-                                .setCustomId(
-                                    'educake_homework'
-                                )
-                                .setPlaceholder(
-                                    `Choose up to ${
-                                        config
-                                            .max_homework_selection
-                                            ?.educake ||
-                                            6
-                                    } homeworks`
-                                )
-                                .setMinValues(0)
-                                .setMaxValues(
-                                    Math.min(
-                                        config
-                                            .max_homework_selection
-                                            ?.educake ||
-                                            6,
-                                        Object.keys(
-                                            latestQuizes
-                                                .attempts
-                                        ).length ||
-                                            1
-                                    )
-                                );
-
-                        this.menuStage =
-                            'current';
-
-                        currentPage = 0;
-
-                        await this.educakeMenu(
-                            select,
-                            latestQuizes,
-                            currentPage
-                        );
-
-                    } else if (
-                        componentInteraction.customId.startsWith(
-                            'menu'
-                        )
-                    ) {
-                        await componentInteraction.deferUpdate();
-
-                        if (
-                            componentInteraction.customId ===
-                            'menu_prev'
-                        ) {
-                            currentPage = Math.max(
-                                0,
-                                currentPage - 1
-                            );
-                        } else if (
-                            componentInteraction.customId ===
-                            'menu_skip_back'
-                        ) {
-                            currentPage = 0;
-                        } else if (
-                            componentInteraction.customId ===
-                            'menu_next'
-                        ) {
-                            currentPage = Math.min(
-                                this.totalPages - 1,
-                                currentPage + 1
-                            );
-                        } else if (
-                            componentInteraction.customId ===
-                            'menu_skip_forward'
-                        ) {
-                            currentPage =
-                                this.totalPages - 1;
-                        }
-
-                        await this.educakeMenu(
-                            select,
-                            latestQuizes,
-                            currentPage
-                        );
-
-                    } else if (
-                        componentInteraction.customId ===
-                        'save_account'
-                    ) {
-                        const modal =
-                            new ModalBuilder()
-                                .setCustomId(
-                                    'save_account_educake'
-                                )
-                                .setTitle(
-                                    'Save Account'
-                                );
-
-                        const input =
-                            new TextInputBuilder()
-                                .setCustomId(
-                                    'master_password'
-                                )
-                                .setLabel(
-                                    'Master Password'
-                                )
-                                .setStyle(
-                                    TextInputStyle.Short
-                                )
-                                .setRequired(true);
-
-                        modal.addComponents(
-                            new ActionRowBuilder().addComponents(
-                                input
-                            )
-                        );
-
-                        await componentInteraction.showModal(
-                            modal
-                        );
-
-                    } else if (
-                        componentInteraction.customId ===
-                        'set_time'
-                    ) {
-                        const modal =
-                            new ModalBuilder()
-                                .setCustomId(
-                                    'educake_set_time'
-                                )
-                                .setTitle(
-                                    'Set Time'
-                                );
-
-                        const input =
-                            new TextInputBuilder()
-                                .setCustomId(
-                                    'time_min'
-                                )
-                                .setLabel(
-                                    'Time Min'
-                                )
-                                .setStyle(
-                                    TextInputStyle.Short
-                                )
-                                .setPlaceholder(
-                                    '0-180'
-                                )
-                                .setRequired(true);
-
-                        const input1 =
-                            new TextInputBuilder()
-                                .setCustomId(
-                                    'time_max'
-                                )
-                                .setLabel(
-                                    'Time Max'
-                                )
-                                .setStyle(
-                                    TextInputStyle.Short
-                                )
-                                .setPlaceholder(
-                                    '0-180'
-                                )
-                                .setRequired(true);
-
-                        modal.addComponents(
-                            new ActionRowBuilder().addComponents(
-                                input
-                            ),
-                            new ActionRowBuilder().addComponents(
-                                input1
-                            )
-                        );
-
-                        await componentInteraction.showModal(
-                            modal
-                        );
-                    }
                 }
             }
         );
-
-        collector.on('end', async () => {
-            select.setDisabled(true);
-
-            const row =
-                new ActionRowBuilder().addComponents();
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(0x7a5b99)
-                    .addTextDisplayComponents(
-                        this.mainMenuSection.data
-                    )
-                    .addSeparatorComponents(
-                        seperator
-                    );
-
-            if (select.options.length) {
-                row.addComponents(select);
-
-                container.addActionRowComponents(
-                    row
-                );
-            }
-
-            const buttonRow =
-                this.createNavigationButtons(
-                    currentPage,
-                    true
-                );
-
-            container.addActionRowComponents(
-                buttonRow
-            );
-
-            this.container = container;
-
-            await this.interaction.editReply({
-                components: [container]
-            });
-        });
     }
 }
 
-const userMenus = {};
 
-async function educake_model_executor(interaction) {
+// ==========================================================
+// MAIN EDUCAKE EXECUTOR
+// ==========================================================
+
+async function educake_model_executor(
+    interaction
+) {
     if (
         !interaction.deferred &&
         !interaction.replied &&
@@ -1321,7 +1619,9 @@ async function educake_model_executor(interaction) {
                 interaction.fields
                     .getField('type')
                     .values[0];
-        } else if (
+        }
+
+        else if (
             interaction.customId ===
             'educake_login_account'
         ) {
@@ -1335,84 +1635,109 @@ async function educake_model_executor(interaction) {
                 interaction.loginDetails.loginType;
         }
 
-        const Loadingsection =
-            new TextDisplayBuilder().setContent(
-                `### Logging In... :hourglass:\nAttempting to log in to your account...`
-            );
+        // --------------------------------------------------
+        // SHOW LOADING
+        // --------------------------------------------------
 
-        const Loadingcontainer =
+        const loadingSection =
+            new TextDisplayBuilder()
+                .setContent(
+                    `### Logging In... :hourglass:\nAttempting to log in to your account...`
+                );
+
+        const loadingContainer =
             new ContainerBuilder()
-                .setAccentColor(0x7a5b99)
+                .setAccentColor(
+                    EMBED_COLOR
+                )
                 .addTextDisplayComponents(
-                    Loadingsection.data
+                    loadingSection.data
                 );
 
         await interaction.editReply({
             components: [
-                Loadingcontainer
-            ],
-            flags: 32768 | 64
+                loadingContainer
+            ]
         });
 
-        console.log('[Educake] Calling educakeLogin...');
-
-        const cookie = await puppetQueue.add(
-            () =>
-                educakeLogin(
-                    username,
-                    password,
-                    loginType
-                )
+        console.log(
+            '[Educake] Calling educakeLogin...'
         );
+
+        // --------------------------------------------------
+        // ACTUAL LOGIN
+        // --------------------------------------------------
+
+        let cookie;
+
+        try {
+            cookie =
+                await puppetQueue.add(
+                    () =>
+                        educakeLogin(
+                            username,
+                            password,
+                            loginType
+                        )
+                );
+        } catch (error) {
+            console.error(
+                '[Educake] Puppeteer queue error:',
+                error
+            );
+
+            cookie = false;
+        }
 
         console.log(
             '[Educake] educakeLogin returned:',
-            cookie ? 'COOKIE' : 'FALSE'
+            cookie
+                ? 'COOKIE'
+                : 'FALSE'
         );
 
+        // --------------------------------------------------
+        // DO NOT SHOW SUCCESS UNLESS LOGIN REALLY WORKED
+        // --------------------------------------------------
+
         if (
-            cookie === false ||
+            !cookie ||
+            typeof cookie !== 'string' ||
             cookie.length < 50
         ) {
             const section =
-                new TextDisplayBuilder().setContent(
-                    `### ❌ Login Failed\nUnable to Login. Please check your login details and try again.`
-                );
+                new TextDisplayBuilder()
+                    .setContent(
+                        `### ❌ Login Failed
+Unable to log in to your Educake account. Please check your login details and try again.`
+                    );
 
             const container =
                 new ContainerBuilder()
-                    .setAccentColor(0xFF474D)
+                    .setAccentColor(
+                        0xff474d
+                    )
                     .addTextDisplayComponents(
                         section.data
                     );
 
             await interaction.editReply({
                 flags: 32768 | 64,
-                components: [container]
+                components: [
+                    container
+                ]
             });
 
             return;
         }
 
-        const loginSuccessSection =
-            new TextDisplayBuilder().setContent(
-                `### ✅ Login Successful\nSuccessfully logged into your Educake account. Loading...`
-            );
+        console.log(
+            '[Educake] Login really completed.'
+        );
 
-        const loginSuccessContainer =
-            new ContainerBuilder()
-                .setAccentColor(0x90EE90)
-                .addTextDisplayComponents(
-                    loginSuccessSection.data
-                );
-
-        await interaction.editReply({
-            flags: 32768 | 64,
-            components: [
-                loginSuccessContainer
-            ],
-            fetchReply: true
-        });
+        // --------------------------------------------------
+        // CREATE SESSION
+        // --------------------------------------------------
 
         const educake_Request =
             new Educake_Requesticator(
@@ -1425,10 +1750,83 @@ async function educake_model_executor(interaction) {
                 }
             );
 
-        const authToken =
-            await educake_Request.sendRequest(
-                'https://my.educake.co.uk/session-token'
+        console.log(
+            '[Educake] Getting Educake session token...'
+        );
+
+        let authToken;
+
+        try {
+            authToken =
+                await educake_Request.sendRequest(
+                    'https://my.educake.co.uk/session-token'
+                );
+        } catch (error) {
+            console.error(
+                '[Educake] Session-token request failed:',
+                error
             );
+
+            const section =
+                new TextDisplayBuilder()
+                    .setContent(
+                        `### ❌ Session Error
+Login succeeded, but Educake did not provide a session token.`
+                    );
+
+            const container =
+                new ContainerBuilder()
+                    .setAccentColor(
+                        0xff474d
+                    )
+                    .addTextDisplayComponents(
+                        section.data
+                    );
+
+            await interaction.editReply({
+                flags: 32768 | 64,
+                components: [
+                    container
+                ]
+            });
+
+            return;
+        }
+
+        if (
+            !authToken ||
+            !authToken.accessToken
+        ) {
+            console.error(
+                '[Educake] Invalid session token response:',
+                authToken
+            );
+
+            const section =
+                new TextDisplayBuilder()
+                    .setContent(
+                        `### ❌ Session Error
+Educake returned an invalid session token.`
+                    );
+
+            const container =
+                new ContainerBuilder()
+                    .setAccentColor(
+                        0xff474d
+                    )
+                    .addTextDisplayComponents(
+                        section.data
+                    );
+
+            await interaction.editReply({
+                flags: 32768 | 64,
+                components: [
+                    container
+                ]
+            });
+
+            return;
+        }
 
         educake_Request.sessionToken =
             authToken.accessToken;
@@ -1437,30 +1835,127 @@ async function educake_model_executor(interaction) {
             interaction.user.id
         ] = educake_Request;
 
-        const account =
-            await checkAccount(
-                interaction.user.id
+        console.log(
+            '[Educake] Session token received.'
+        );
+
+        // --------------------------------------------------
+        // LOAD ACCOUNT
+        // --------------------------------------------------
+
+        let account;
+
+        try {
+            account =
+                await checkAccount(
+                    interaction.user.id
+                );
+        } catch (error) {
+            console.error(
+                '[Educake] Account lookup error:',
+                error
             );
 
+            account = null;
+        }
+
         const educakeSettings =
-            account?.educake_settings ?? {
+            account?.educake_settings ??
+            {
                 min: 5,
                 max: 10
             };
 
-        const educakeMainmenuer =
-            new educakeMainMenu(
-                interaction,
-                educakeSettings
+        // --------------------------------------------------
+        // SHOW SUCCESS ONLY AFTER LOGIN + SESSION
+        // --------------------------------------------------
+
+        const loginSuccessSection =
+            new TextDisplayBuilder()
+                .setContent(
+                    `### ✅ Login Successful
+Successfully logged into your Educake account. Loading homework...`
+                );
+
+        const loginSuccessContainer =
+            new ContainerBuilder()
+                .setAccentColor(
+                    0x90ee90
+                )
+                .addTextDisplayComponents(
+                    loginSuccessSection.data
+                );
+
+        await interaction.editReply({
+            flags: 32768 | 64,
+            components: [
+                loginSuccessContainer
+            ]
+        });
+
+        // --------------------------------------------------
+        // LOAD HOMEWORK
+        // --------------------------------------------------
+
+        console.log(
+            '[Educake] Loading homework menu...'
+        );
+
+        try {
+            const educakeMainmenuer =
+                new educakeMainMenu(
+                    interaction,
+                    educakeSettings
+                );
+
+            userMenus[
+                interaction.user.id
+            ] = educakeMainmenuer;
+
+            await educakeMainmenuer.main();
+
+            console.log(
+                '[Educake] Homework menu loaded.'
             );
 
-        userMenus[
-            interaction.user.id
-        ] = educakeMainmenuer;
+        } catch (error) {
+            console.error(
+                '[Educake] Homework loading failed:',
+                error
+            );
 
-        await educakeMainmenuer.main();
+            const section =
+                new TextDisplayBuilder()
+                    .setContent(
+                        `### ❌ Homework Loading Failed
+Your Educake login worked, but I couldn't retrieve your homework.`
+                    );
 
-    } else if (
+            const container =
+                new ContainerBuilder()
+                    .setAccentColor(
+                        0xff474d
+                    )
+                    .addTextDisplayComponents(
+                        section.data
+                    );
+
+            await interaction.editReply({
+                flags: 32768 | 64,
+                components: [
+                    container
+                ]
+            });
+        }
+
+        return;
+    }
+
+    // ======================================================
+    // SET TIME
+    // ======================================================
+
+    if (
         interaction.customId ===
         'educake_set_time'
     ) {
@@ -1471,33 +1966,39 @@ async function educake_model_executor(interaction) {
             await interaction.deferUpdate();
         }
 
-        const minTime = Number(
-            interaction.fields.getTextInputValue(
-                'time_min'
-            )
-        );
+        const minTime =
+            Number(
+                interaction.fields.getTextInputValue(
+                    'time_min'
+                )
+            );
 
-        const maxTime = Number(
-            interaction.fields.getTextInputValue(
-                'time_max'
-            )
-        );
+        const maxTime =
+            Number(
+                interaction.fields.getTextInputValue(
+                    'time_max'
+                )
+            );
 
         if (
-            isNaN(minTime) ||
+            Number.isNaN(minTime) ||
+            Number.isNaN(maxTime) ||
             minTime < 0 ||
             maxTime < 0 ||
-            isNaN(maxTime) ||
             minTime > maxTime ||
             maxTime > 180
         ) {
             return;
         }
 
-        const userSession =
+        const userMenu =
             userMenus[
                 interaction.user.id
             ];
+
+        if (!userMenu) {
+            return;
+        }
 
         await updateDB(
             interaction.user.id,
@@ -1509,16 +2010,23 @@ async function educake_model_executor(interaction) {
             }
         );
 
-        userSession.timeSettings = {
+        userMenu.timeSettings = {
             min: minTime,
             max: maxTime
         };
 
-        await userSession.updateMainMenu();
+        await userMenu.updateMainMenu();
     }
 }
 
-async function educake_collector(message_sent) {
+
+// ==========================================================
+// EDUCAKE COLLECTOR
+// ==========================================================
+
+async function educake_collector(
+    message_sent
+) {
     const collector =
         message_sent.createMessageComponentCollector(
             {
@@ -1529,183 +2037,199 @@ async function educake_collector(message_sent) {
 
     collector.on(
         'collect',
-        async (interaction) => {
-            if (
-                await validAccount(
-                    interaction,
-                    'educake',
-                    false
-                )
-            ) {
-                return;
-            }
-
-            const loginBtn =
-                new ButtonBuilder()
-                    .setCustomId(
-                        'educake_login'
-                    )
-                    .setLabel('Login')
-                    .setEmoji(emojis.login)
-                    .setStyle(
-                        ButtonStyle.Success
-                    );
-
-            const row =
-                new ActionRowBuilder().addComponents(
-                    loginBtn
-                );
-
-            const seperator =
-                new SeparatorBuilder({
-                    spacing:
-                        SeparatorSpacingSize.Small
-                });
-
-            const section =
-                new TextDisplayBuilder().setContent(
-                    `### Educake Login\nLogin by simply inputting your username and password!`
-                );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0x7a5b99
-                    )
-                    .addTextDisplayComponents(
-                        section.data
-                    )
-                    .addSeparatorComponents(
-                        seperator
-                    )
-                    .addActionRowComponents(
-                        row
-                    );
-
+        async interaction => {
             try {
-                const message_sent =
+                if (
+                    await validAccount(
+                        interaction,
+                        'educake',
+                        false
+                    )
+                ) {
+                    return;
+                }
+
+                const loginBtn =
+                    new ButtonBuilder()
+                        .setCustomId(
+                            'educake_login'
+                        )
+                        .setLabel('Login')
+                        .setEmoji(
+                            emojis.login
+                        )
+                        .setStyle(
+                            ButtonStyle.Success
+                        );
+
+                const row =
+                    new ActionRowBuilder()
+                        .addComponents(
+                            loginBtn
+                        );
+
+                const section =
+                    new TextDisplayBuilder()
+                        .setContent(
+                            `### Educake Login
+Login by simply inputting your username and password!`
+                        );
+
+                const container =
+                    new ContainerBuilder()
+                        .setAccentColor(
+                            EMBED_COLOR
+                        )
+                        .addTextDisplayComponents(
+                            section.data
+                        )
+                        .addSeparatorComponents(
+                            seperator
+                        )
+                        .addActionRowComponents(
+                            row
+                        );
+
+                const message =
                     await interaction.reply({
                         flags:
                             32768 | 64,
                         components: [
                             container
                         ],
-                        fetchReply: true
+                        withResponse: true
                     });
 
-                const collector =
-                    message_sent.createMessageComponentCollector(
+                const responseMessage =
+                    message.resource?.message;
+
+                if (!responseMessage) {
+                    console.error(
+                        '[Educake] Could not get login message.'
+                    );
+                    return;
+                }
+
+                const innerCollector =
+                    responseMessage.createMessageComponentCollector(
                         {
                             componentType:
                                 ComponentType.Button
                         }
                     );
 
-                collector.on(
+                innerCollector.on(
                     'collect',
-                    async (
-                        componentInteraction
-                    ) => {
+                    async componentInteraction => {
                         try {
                             if (
-                                componentInteraction.customId ===
+                                componentInteraction.customId !==
                                 'educake_login'
                             ) {
-                                const modal =
-                                    new ModalBuilder()
-                                        .setCustomId(
-                                            'educake_login_modal'
-                                        )
-                                        .setTitle(
-                                            'Educake Login'
-                                        );
-
-                                const usernameInput =
-                                    new TextInputBuilder()
-                                        .setCustomId(
-                                            'educake_username'
-                                        )
-                                        .setLabel(
-                                            'Username'
-                                        )
-                                        .setStyle(
-                                            TextInputStyle.Short
-                                        )
-                                        .setRequired(
-                                            true
-                                        );
-
-                                const passwordInput =
-                                    new TextInputBuilder()
-                                        .setCustomId(
-                                            'educake_password'
-                                        )
-                                        .setLabel(
-                                            'Password'
-                                        )
-                                        .setStyle(
-                                            TextInputStyle.Short
-                                        )
-                                        .setRequired(
-                                            true
-                                        );
-
-                                const typeInput =
-                                    new StringSelectMenuBuilder()
-                                        .setCustomId(
-                                            'type'
-                                        )
-                                        .setPlaceholder(
-                                            'Normal/Microsoft/Google'
-                                        )
-                                        .addOptions(
-                                            {
-                                                label: 'Normal',
-                                                value: 'Normal',
-                                                emoji: '🔐'
-                                            },
-                                            {
-                                                label: 'Microsoft',
-                                                value: 'Microsoft',
-                                                emoji: '🪟'
-                                            },
-                                            {
-                                                label: 'Google',
-                                                value: 'Google',
-                                                emoji: '🔵'
-                                            }
-                                        );
-
-                                const typeLabel =
-                                    new LabelBuilder({
-                                        label: 'Login Type',
-                                        component:
-                                            typeInput
-                                    });
-
-                                const usernameRow =
-                                    new ActionRowBuilder().addComponents(
-                                        usernameInput
-                                    );
-
-                                const passwordRow =
-                                    new ActionRowBuilder().addComponents(
-                                        passwordInput
-                                    );
-
-                                modal.addComponents(
-                                    usernameRow,
-                                    passwordRow
-                                );
-
-                                modal.addLabelComponents(
-                                    typeLabel
-                                );
-
-                                await componentInteraction.showModal(
-                                    modal
-                                );
+                                return;
                             }
+
+                            const modal =
+                                new ModalBuilder()
+                                    .setCustomId(
+                                        'educake_login_modal'
+                                    )
+                                    .setTitle(
+                                        'Educake Login'
+                                    );
+
+                            const usernameInput =
+                                new TextInputBuilder()
+                                    .setCustomId(
+                                        'educake_username'
+                                    )
+                                    .setLabel(
+                                        'Username'
+                                    )
+                                    .setStyle(
+                                        TextInputStyle.Short
+                                    )
+                                    .setRequired(
+                                        true
+                                    );
+
+                            const passwordInput =
+                                new TextInputBuilder()
+                                    .setCustomId(
+                                        'educake_password'
+                                    )
+                                    .setLabel(
+                                        'Password'
+                                    )
+                                    .setStyle(
+                                        TextInputStyle.Short
+                                    )
+                                    .setRequired(
+                                        true
+                                    );
+
+                            const typeInput =
+                                new StringSelectMenuBuilder()
+                                    .setCustomId(
+                                        'type'
+                                    )
+                                    .setPlaceholder(
+                                        'Select login type'
+                                    )
+                                    .addOptions(
+                                        {
+                                            label:
+                                                'Normal',
+                                            value:
+                                                'Normal',
+                                            emoji:
+                                                '🔐'
+                                        },
+                                        {
+                                            label:
+                                                'Microsoft',
+                                            value:
+                                                'Microsoft',
+                                            emoji:
+                                                '🪟'
+                                        },
+                                        {
+                                            label:
+                                                'Google',
+                                            value:
+                                                'Google',
+                                            emoji:
+                                                '🔵'
+                                        }
+                                    );
+
+                            const typeLabel =
+                                new LabelBuilder({
+                                    label:
+                                        'Login Type',
+                                    component:
+                                        typeInput
+                                });
+
+                            modal.addComponents(
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        usernameInput
+                                    ),
+                                new ActionRowBuilder()
+                                    .addComponents(
+                                        passwordInput
+                                    )
+                            );
+
+                            modal.addLabelComponents(
+                                typeLabel
+                            );
+
+                            await componentInteraction.showModal(
+                                modal
+                            );
+
                         } catch (error) {
                             if (
                                 error.code ===
@@ -1717,28 +2241,32 @@ async function educake_collector(message_sent) {
                             }
 
                             console.error(
-                                'Error in Educake inner collector:',
+                                '[Educake] Login modal error:',
                                 error
                             );
                         }
                     }
                 );
+
             } catch (error) {
                 if (
-                    error.code === 40060 ||
-                    error.code === 10062
+                    error.code ===
+                        40060 ||
+                    error.code ===
+                        10062
                 ) {
                     return;
                 }
 
                 console.error(
-                    'Error in Educake collector:',
+                    '[Educake] Collector error:',
                     error
                 );
             }
         }
     );
 }
+
 
 module.exports = {
     educake_collector,
