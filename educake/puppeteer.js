@@ -10,16 +10,20 @@ puppeteer.use(StealthPlugin());
 const smartLogin = require('../utils/smartLogin');
 
 async function educakeLogin(username, password, loginType, on2FA) {
-    console.log('[Educake] Starting Chrome...');
-
-    const browser = await puppeteer.launch({
-        headless: true
-    });
+    let browser = null;
 
     try {
-        const page = await browser.newPage();
+        console.log('[Educake] Starting Chrome...');
+
+        browser = await puppeteer.launch({
+            headless: true,
+            timeout: 30000
+        });
 
         console.log('[Educake] Chrome started.');
+
+        const page = await browser.newPage();
+
         console.log('[Educake] Opening Educake login page...');
 
         await page.goto('https://my.educake.co.uk/student-login', {
@@ -30,7 +34,6 @@ async function educakeLogin(username, password, loginType, on2FA) {
         console.log('[Educake] Login page loaded.');
         console.log('[Educake] Current URL:', page.url());
 
-        // Cookie banner
         console.log('[Educake] Checking cookie banner...');
 
         try {
@@ -115,9 +118,7 @@ async function educakeLogin(username, password, loginType, on2FA) {
             const buttonIndex =
                 loginType === 'Google' ? 0 : 1;
 
-            console.log(
-                '[Educake] Waiting for SSO buttons...'
-            );
+            console.log('[Educake] Waiting for SSO buttons...');
 
             await page.waitForSelector(
                 '.sso-login.btn.white',
@@ -220,9 +221,17 @@ async function educakeLogin(username, password, loginType, on2FA) {
         return false;
 
     } finally {
-        await browser.close();
-
-        console.log('[Educake] Browser closed.');
+        if (browser) {
+            try {
+                await browser.close();
+                console.log('[Educake] Browser closed.');
+            } catch (closeError) {
+                console.error(
+                    '[Educake] Browser close error:',
+                    closeError.message
+                );
+            }
+        }
     }
 }
 
