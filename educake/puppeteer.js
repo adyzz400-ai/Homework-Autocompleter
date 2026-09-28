@@ -123,10 +123,38 @@ async function educakeLogin(username, password, loginType, on2FA) {
 
             console.log('[Educake] Password field found.');
 
-            await page.type(
+            // --------------------------------------------------
+            // PASSWORD ENTRY
+            // --------------------------------------------------
+
+            console.log('[Educake] Filling password field...');
+
+            await page.$eval(
                 'input[name="password"]',
+                (element, value) => {
+                    element.focus();
+                    element.value = value;
+
+                    element.dispatchEvent(
+                        new Event('input', {
+                            bubbles: true
+                        })
+                    );
+
+                    element.dispatchEvent(
+                        new Event('change', {
+                            bubbles: true
+                        })
+                    );
+                },
                 password
             );
+
+            console.log('[Educake] Password field filled.');
+
+            // --------------------------------------------------
+            // LOGIN BUTTON
+            // --------------------------------------------------
 
             const loginButtonSelector =
                 'button[type="submit"]';
