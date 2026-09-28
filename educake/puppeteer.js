@@ -3,26 +3,13 @@ require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-// Enable the stealth plugin
 puppeteer.use(StealthPlugin());
-
-// Replace your old launch code with this:
-const browser = await puppeteer.launch({
-  headless: true,
-  args: [
-    '--no-sandbox',                // Required for Linux/Render environments
-    '--disable-setuid-sandbox',    // Required for Linux/Render environments
-    '--disable-blink-features=AutomationControlled'
-  ]
-});
 
 const smartLogin =
     require('../utils/smartLogin');
 
 const delay = ms =>
     new Promise(resolve => setTimeout(resolve, ms));
-
-puppeteer.use(StealthPlugin());
 
 // Keep authenticated Educake browser sessions alive.
 const browserSessions = new Map();
@@ -39,10 +26,14 @@ async function educakeLogin(
     try {
         console.log('[Educake] Starting Chrome...');
 
-        browser = await puppeteer.launch({
-            headless: true,
-            timeout: 30000
-        });
+      browser = await puppeteer.launch({
+    headless: true,
+    timeout: 30000,
+    args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox'
+    ]
+});
 
         console.log('[Educake] Chrome started.');
 
