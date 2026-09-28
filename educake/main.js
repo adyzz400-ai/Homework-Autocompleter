@@ -1506,10 +1506,42 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                         components
                     });
                 } catch (error) {
-                    console.error(
-                        '[Educake] Collector end error:',
-                        error
-                    );
+    console.error(
+        '[Educake] SESSION TOKEN REQUEST FAILED'
+    );
+
+    console.error(
+        '[Educake] Error name:',
+        error?.name
+    );
+
+    console.error(
+        '[Educake] Error message:',
+        error?.message
+    );
+
+    console.error(
+        '[Educake] Error stack:',
+        error?.stack
+    );
+
+    const embed =
+        new EmbedBuilder()
+            .setColor(0xff474d)
+            .setTitle(
+                '❌ Session Error'
+            )
+            .setDescription(
+                'Login succeeded, but the Educake session-token request failed.'
+            );
+
+    await interaction.editReply({
+        embeds: [embed],
+        components: []
+    });
+
+    return;
+}
                 }
             }
         );
