@@ -43,16 +43,26 @@ class PythonWorker {
     }
 
     start() {
-        if (this.process && !this.process.killed) return;
+        if (this.process && !this.process.killed) {
+            return;
+        }
 
-        console.log('[PythonWorker] Starting Persistent Python Worker...');
+        console.log(
+            '[PythonWorker] Starting Persistent Python Worker...'
+        );
 
         const pythonCommand =
-            process.platform === 'win32' ? 'python' : 'python3';
+            process.platform === 'win32'
+                ? 'python'
+                : 'python3';
 
-        this.process = spawn(pythonCommand, [this.scriptPath], {
-            stdio: ['pipe', 'pipe', 'pipe']
-        });
+        this.process = spawn(
+            pythonCommand,
+            [this.scriptPath],
+            {
+                stdio: ['pipe', 'pipe', 'pipe']
+            }
+        );
 
         this.process.stdout.on('data', data => {
             const output = data.toString();
@@ -136,40 +146,50 @@ class PythonWorker {
             this.start();
         }
 
-        const release = await this.mutex.acquire();
+        const release =
+            await this.mutex.acquire();
 
         try {
-            return await new Promise((resolve, reject) => {
-                this.currentResolver = {
-                    resolve,
-                    reject
-                };
+            return await new Promise(
+                (resolve, reject) => {
+                    this.currentResolver = {
+                        resolve,
+                        reject
+                    };
 
-                console.log(
-                    '[PythonWorker] Sending request to Python:',
-                    requestData.method,
-                    requestData.url
-                );
+                    console.log(
+                        '[PythonWorker] Sending request to Python:',
+                        requestData.method,
+                        requestData.url
+                    );
 
-                const written = this.process.stdin.write(
-                    JSON.stringify(requestData) + '\n'
-                );
-
-                if (!written) {
-                    this.process.stdin.once('drain', () => {
-                        console.log(
-                            '[PythonWorker] stdin drained.'
+                    const written =
+                        this.process.stdin.write(
+                            JSON.stringify(
+                                requestData
+                            ) + '\n'
                         );
-                    });
+
+                    if (!written) {
+                        this.process.stdin.once(
+                            'drain',
+                            () => {
+                                console.log(
+                                    '[PythonWorker] stdin drained.'
+                                );
+                            }
+                        );
+                    }
                 }
-            });
+            );
         } finally {
             release();
         }
     }
 }
 
-const globalPythonWorker = new PythonWorker();
+const globalPythonWorker =
+    new PythonWorker();
 
 class curlRequesticator {
     constructor(cookies) {
@@ -211,14 +231,18 @@ class curlRequesticator {
                         .join(':')
                         .trim();
 
-                    requestData.headers[key] = value;
+                    requestData.headers[key] =
+                        value;
                 }
             });
         }
 
         if (Buffer.isBuffer(data)) {
-            requestData.data = data.toString('base64');
-            requestData.is_binary_data = true;
+            requestData.data =
+                data.toString('base64');
+
+            requestData.is_binary_data =
+                true;
         } else if (data) {
             requestData.data =
                 typeof data === 'object'
@@ -243,7 +267,8 @@ class curlRequesticator {
             let result;
 
             try {
-                result = JSON.parse(responseLine);
+                result =
+                    JSON.parse(responseLine);
             } catch (parseError) {
                 console.error(
                     '[curlRequesticator] Invalid JSON from Python worker.'
@@ -263,7 +288,9 @@ class curlRequesticator {
                     result.error
                 );
 
-                throw new Error(result.error);
+                throw new Error(
+                    result.error
+                );
             }
 
             console.log(
@@ -271,10 +298,11 @@ class curlRequesticator {
                 result.statusCode
             );
 
-            const bodyBuffer = Buffer.from(
-                result.body,
-                'base64'
-            );
+            const bodyBuffer =
+                Buffer.from(
+                    result.body,
+                    'base64'
+                );
 
             let responseBody;
 
@@ -285,13 +313,18 @@ class curlRequesticator {
                 responseBody = bodyBuffer;
             } else {
                 const bodyString =
-                    bodyBuffer.toString('utf8');
+                    bodyBuffer.toString(
+                        'utf8'
+                    );
 
                 try {
                     responseBody =
-                        JSON.parse(bodyString);
+                        JSON.parse(
+                            bodyString
+                        );
                 } catch {
-                    responseBody = bodyString;
+                    responseBody =
+                        bodyString;
                 }
             }
 
@@ -301,9 +334,12 @@ class curlRequesticator {
 
             if (options.returnHeaders) {
                 return {
-                    status: result.statusCode,
-                    headers: result.headers,
-                    data: responseBody
+                    status:
+                        result.statusCode,
+                    headers:
+                        result.headers,
+                    data:
+                        responseBody
                 };
             }
 
@@ -320,4 +356,72 @@ class curlRequesticator {
     }
 }
 
-module.exports = curlRequesticator;
+
+/*
+ * Educake Requesticator
+ *
+ * This is the class imported by:
+ *
+ * require('./requesticator.js')
+ *
+ * It provides the sendRequest() method
+ * required by educake/main.js.
+ */
+
+class Educake_Requesticator
+    extends curlRequesticator {
+
+    constructor(
+        cookies,
+        login = {}
+    ) {
+        super(cookies);
+
+        this.login = login;
+        this.sessionToken = null;
+    }
+
+    async sendRequest(
+        url,
+        data = null
+    ) {
+        const headers = [
+            'accept: application/json;version=2',
+            'accept-language: en-GB,en;q=0.9,en-US;q=0.8',
+            'content-type: application/json',
+            'origin: https://my.educake.co.uk',
+            'referer: https://my.educake.co.uk/my-educake/',
+            'sec-fetch-dest: empty',
+            'sec-fetch-mode: cors',
+            'sec-fetch-site: same-origin',
+            'user-agent: Mozilla/5.0'
+        ];
+
+        if (this.sessionToken) {
+            headers.push(
+                `authorization: Bearer ${this.sessionToken}`
+            );
+        }
+
+        return this._executeCurl(
+            url,
+            headers,
+            data
+        );
+    }
+}
+
+
+/*
+ * Export Educake_Requesticator
+ *
+ * IMPORTANT:
+ * Do not change this back to:
+ *
+ * module.exports = curlRequesticator;
+ *
+ * because main.js needs sendRequest().
+ */
+
+module.exports =
+    Educake_Requesticator;
