@@ -94,41 +94,47 @@ async function educakeLogin(
         // ==================================================
 
         console.log(
-            '[Educake] Checking cookie banner...'
+    '[Educake] Checking cookie banner...'
+);
+
+try {
+    const cookieButton = await page.evaluate(() => {
+        const elements = Array.from(
+            document.querySelectorAll('button, input[type="button"], input[type="submit"]')
         );
 
-        try {
-            await page.waitForSelector(
-                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-                {
-                    visible: true,
-                    timeout: 5000
-                }
-            );
+        const button = elements.find(element =>
+            (element.innerText || element.value || '')
+                .trim()
+                .toLowerCase() === 'yes, allow all'
+        );
 
-            console.log(
-                '[Educake] Cookie banner found.'
-            );
-
-            await page.click(
-                '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
-            );
-
-            console.log(
-                '[Educake] Cookie consent accepted.'
-            );
-
-            await delay(500);
-
-        } catch {
-            console.log(
-                '[Educake] No cookie banner found.'
-            );
+        if (button) {
+            button.click();
+            return true;
         }
 
+        return false;
+    });
+
+    if (cookieButton) {
         console.log(
-            '[Educake] Continuing to login flow...'
+            '[Educake] Cookie consent accepted.'
         );
+
+        await delay(1000);
+    } else {
+        console.log(
+            '[Educake] No cookie banner found.'
+        );
+    }
+
+} catch (error) {
+    console.log(
+        '[Educake] Cookie banner handling failed:',
+        error.message
+    );
+}
 
         // ==================================================
         // NORMAL LOGIN
