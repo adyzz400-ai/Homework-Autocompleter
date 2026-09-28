@@ -1,27 +1,89 @@
 {
+  "reader_queue_max": 6,
+  "maths_queue_max": 3,
+  "science_queue_max": 3,
+
   "slots": {
+    "developer": 9999,
+    "staff": 9999,
+    "lifetime": 3,
+    "monthly": 3,
+    "booster": 3,
+    "free-trial": 0,
     "free": 1,
     "basic": 2,
     "premium": 5
   },
+
+  "roles": {
+    "lifetime": ""
+  },
+
   "queue_ranks": {
+    "developer": "",
+    "staff": "",
+    "lifetime": "",
+    "monthly": "",
+    "booster": "",
+    "free-trial": "",
     "free": "1553886055378452530",
     "basic": "1553886330922999828",
     "premium": "1548376649450389686"
   },
+
+  "channels": {
+    "languagenut": "",
+    "sparx_maths": "",
+    "sparx_reader": "",
+    "sparx_science": "",
+    "educake": "1552420129802035231",
+    "seneca": "",
+    "drfrost": ""
+  },
+
+  "image_solver": "",
+  "bug_report_category_id": "",
+
   "emojis": {
-    "login": "🔐",
-    "queue": "📋",
-    "save_account": "💾",
-    "tag_changer": "🏷️",
     "goldtrue": "🟡",
     "goldfalse": "⚪",
+    "attention": "⚠️",
+
+    "login": "🔐",
+    "cookies": "🍪",
+    "tag_changer": "🏷️",
+    "save_account": "💾",
+    "accounts": "👤",
+    "stats": "📊",
+    "main_accounts": "👥",
+    "exit_queue": "🚪",
+    "sparxnow": "🤖",
+    "queue": "📋",
+    "pdf": "📄",
+    "independent_learning": "📚",
+
+    "retry": "🔄",
+    "explanation": "❔",
+    "drfrost": "📐",
+    "science": "🔬",
+    "languagenut": "🌐",
+    "seneca": "📖",
+    "educake": "📝",
+    "maths": "➗",
+    "sparx": "📚",
+    "google": "🔵",
+    "microsoft": "🪟",
+
     "tick": "✅",
     "x": "❌",
-    "settings": "⚙️",
-    "independent_learning": "📚"
+    "settings": "⚙️"
   },
-  "channels": {
-    "educake": "1552420129802035231"
-  }
+
+  "ai": {
+    "0": "2.5-flash",
+    "1": "2.5-pro",
+    "2": "2.5-flash-lite"
+  },
+
+  "require_mainaccounts": true
 }
