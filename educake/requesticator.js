@@ -1,6 +1,19 @@
-const { spawn } = require('child_process');
-const path = require('path');
+const { spawn } =
+    require('child_process');
+
+const path =
+    require('path');
+
 require('dotenv').config();
+
+const {
+    browserRequest
+} = require('./puppeteer');
+
+
+// ==========================================================
+// SIMPLE MUTEX
+// ==========================================================
 
 class SimpleMutex {
     constructor() {
@@ -9,41 +22,72 @@ class SimpleMutex {
     }
 
     async acquire() {
-        return new Promise(resolve => {
-            const release = () => {
-                if (this.queue.length > 0) {
-                    const next = this.queue.shift();
-                    next();
-                } else {
-                    this.locked = false;
-                }
-            };
+        return new Promise(
+            resolve => {
+                const release = () => {
+                    if (
+                        this.queue.length > 0
+                    ) {
+                        const next =
+                            this.queue.shift();
 
-            if (!this.locked) {
-                this.locked = true;
-                resolve(release);
-            } else {
-                this.queue.push(() => resolve(release));
+                        next();
+
+                    } else {
+                        this.locked =
+                            false;
+                    }
+                };
+
+                if (!this.locked) {
+                    this.locked =
+                        true;
+
+                    resolve(
+                        release
+                    );
+
+                } else {
+                    this.queue.push(
+                        () =>
+                            resolve(
+                                release
+                            )
+                    );
+                }
             }
-        });
+        );
     }
 }
 
+
+// ==========================================================
+// PYTHON WORKER
+// ==========================================================
+
 class PythonWorker {
     constructor() {
-        this.scriptPath = path.resolve(
-            __dirname,
-            '../tools/curl_cffi_script.py'
-        );
+        this.scriptPath =
+            path.resolve(
+                __dirname,
+                '../tools/curl_cffi_script.py'
+            );
 
         this.process = null;
-        this.mutex = new SimpleMutex();
-        this.currentResolver = null;
+        this.mutex =
+            new SimpleMutex();
+
+        this.currentResolver =
+            null;
+
         this.buffer = '';
     }
 
     start() {
-        if (this.process && !this.process.killed) {
+        if (
+            this.process &&
+            !this.process.killed
+        ) {
             return;
         }
 
@@ -56,13 +100,18 @@ class PythonWorker {
                 ? 'python'
                 : 'python3';
 
-        this.process = spawn(
-            pythonCommand,
-            [this.scriptPath],
-            {
-                stdio: ['pipe', 'pipe', 'pipe']
-            }
-        );
+        this.process =
+            spawn(
+                pythonCommand,
+                [this.scriptPath],
+                {
+                    stdio: [
+                        'pipe',
+                        'pipe',
+                        'pipe'
+                    ]
+                }
+            );
 
         this.process.stdout.on(
             'data',
@@ -75,7 +124,8 @@ class PythonWorker {
                     output.trim()
                 );
 
-                this.buffer += output;
+                this.buffer +=
+                    output;
 
                 this.processBuffer();
             }
@@ -86,7 +136,9 @@ class PythonWorker {
             data => {
                 console.error(
                     '[PythonWorker] stderr:',
-                    data.toString().trim()
+                    data
+                        .toString()
+                        .trim()
                 );
             }
         );
@@ -99,12 +151,15 @@ class PythonWorker {
                     error.message
                 );
 
-                if (this.currentResolver) {
+                if (
+                    this.currentResolver
+                ) {
                     this.currentResolver.reject(
                         error
                     );
 
-                    this.currentResolver = null;
+                    this.currentResolver =
+                        null;
                 }
             }
         );
@@ -116,16 +171,20 @@ class PythonWorker {
                     `[PythonWorker] Worker exited with code ${code}`
                 );
 
-                this.process = null;
+                this.process =
+                    null;
 
-                if (this.currentResolver) {
+                if (
+                    this.currentResolver
+                ) {
                     this.currentResolver.reject(
                         new Error(
                             'Python worker process exited unexpectedly'
                         )
                     );
 
-                    this.currentResolver = null;
+                    this.currentResolver =
+                        null;
                 }
 
                 this.buffer = '';
@@ -139,12 +198,17 @@ class PythonWorker {
         while (
             (
                 newlineIndex =
-                    this.buffer.indexOf('\n')
+                    this.buffer.indexOf(
+                        '\n'
+                    )
             ) !== -1
         ) {
             const line =
                 this.buffer
-                    .slice(0, newlineIndex)
+                    .slice(
+                        0,
+                        newlineIndex
+                    )
                     .trim();
 
             this.buffer =
@@ -164,12 +228,15 @@ class PythonWorker {
                     line
                 );
 
-                this.currentResolver = null;
+                this.currentResolver =
+                    null;
             }
         }
     }
 
-    async execute(requestData) {
+    async execute(
+        requestData
+    ) {
         if (!this.process) {
             this.start();
         }
@@ -179,7 +246,10 @@ class PythonWorker {
 
         try {
             return await new Promise(
-                (resolve, reject) => {
+                (
+                    resolve,
+                    reject
+                ) => {
                     this.currentResolver = {
                         resolve,
                         reject
@@ -210,18 +280,26 @@ class PythonWorker {
                     }
                 }
             );
+
         } finally {
             release();
         }
     }
 }
 
+
 const globalPythonWorker =
     new PythonWorker();
 
+
+// ==========================================================
+// CURL REQUESTICATOR
+// ==========================================================
+
 class curlRequesticator {
     constructor(cookies) {
-        this.cookies = cookies;
+        this.cookies =
+            cookies;
     }
 
     async _executeCurl(
@@ -232,53 +310,77 @@ class curlRequesticator {
     ) {
         console.log(
             '[curlRequesticator] REQUEST:',
-            data ? 'POST' : 'GET',
+            data
+                ? 'POST'
+                : 'GET',
             url
         );
 
         const requestData = {
             url,
-            method: data ? 'POST' : 'GET',
+            method:
+                data
+                    ? 'POST'
+                    : 'GET',
             headers: {},
-            cookies: this.cookies,
+            cookies:
+                this.cookies,
             data: null,
-            is_binary_data: false
+            is_binary_data:
+                false
         };
 
-        if (Array.isArray(headers)) {
-            headers.forEach(header => {
-                const parts =
-                    header.split(':');
+        if (
+            Array.isArray(headers)
+        ) {
+            headers.forEach(
+                header => {
+                    const parts =
+                        header.split(':');
 
-                if (parts.length >= 2) {
-                    const key =
-                        parts[0]
-                            .trim()
-                            .toLowerCase();
+                    if (
+                        parts.length >= 2
+                    ) {
+                        const key =
+                            parts[0]
+                                .trim()
+                                .toLowerCase();
 
-                    const value =
-                        parts
-                            .slice(1)
-                            .join(':')
-                            .trim();
+                        const value =
+                            parts
+                                .slice(1)
+                                .join(':')
+                                .trim();
 
-                    requestData.headers[key] =
-                        value;
+                        requestData
+                            .headers[key] =
+                            value;
+                    }
                 }
-            });
+            );
         }
 
-        if (Buffer.isBuffer(data)) {
+        if (
+            Buffer.isBuffer(data)
+        ) {
             requestData.data =
-                data.toString('base64');
+                data.toString(
+                    'base64'
+                );
 
             requestData.is_binary_data =
                 true;
 
-        } else if (data !== null && data !== undefined) {
+        } else if (
+            data !== null &&
+            data !== undefined
+        ) {
             requestData.data =
-                typeof data === 'object'
-                    ? JSON.stringify(data)
+                typeof data ===
+                'object'
+                    ? JSON.stringify(
+                          data
+                      )
                     : data;
         }
 
@@ -300,7 +402,10 @@ class curlRequesticator {
 
             try {
                 result =
-                    JSON.parse(responseLine);
+                    JSON.parse(
+                        responseLine
+                    );
+
             } catch (error) {
                 console.error(
                     '[curlRequesticator] Invalid JSON from Python worker.'
@@ -309,12 +414,9 @@ class curlRequesticator {
                 throw error;
             }
 
-            if (result.error) {
-                console.error(
-                    '[curlRequesticator] Python returned an error:',
-                    result.error
-                );
-
+            if (
+                result.error
+            ) {
                 throw new Error(
                     result.error
                 );
@@ -351,23 +453,23 @@ class curlRequesticator {
                         JSON.parse(
                             bodyString
                         );
+
                 } catch {
                     responseBody =
                         bodyString;
                 }
             }
 
-            console.log(
-                '[curlRequesticator] Response processed successfully.'
-            );
-
-            if (options.returnHeaders) {
+            if (
+                options.returnHeaders
+            ) {
                 return {
                     status:
                         result.statusCode,
 
                     headers:
-                        result.headers || {},
+                        result.headers ||
+                        {},
 
                     data:
                         responseBody
@@ -401,8 +503,11 @@ class Educake_Requesticator
     ) {
         super(cookies);
 
-        this.login = login;
-        this.sessionToken = null;
+        this.login =
+            login;
+
+        this.sessionToken =
+            null;
     }
 
     getHeaders() {
@@ -418,13 +523,75 @@ class Educake_Requesticator
             'user-agent: Mozilla/5.0'
         ];
 
-        if (this.sessionToken) {
+        if (
+            this.sessionToken
+        ) {
             headers.push(
                 `authorization: Bearer ${this.sessionToken}`
             );
         }
 
         return headers;
+    }
+
+    async _executeEducakeRequest(
+        url,
+        data = null,
+        options = {}
+    ) {
+        // ==================================================
+        // USE THE SAME AUTHENTICATED PUPPETEER SESSION
+        // ==================================================
+
+        console.log(
+            '[Educake_Requesticator] Using authenticated browser session.'
+        );
+
+        const response =
+            await browserRequest(
+                this.cookies,
+                url,
+                this.getHeaders(),
+                data,
+                options
+            );
+
+        if (!response) {
+            throw new Error(
+                '[Educake] Empty Educake response.'
+            );
+        }
+
+        console.log(
+            '[Educake_Requesticator] HTTP status:',
+            response.status
+        );
+
+        // Do NOT treat Cloudflare HTML or other non-success
+        // responses as a session token.
+        if (
+            response.status < 200 ||
+            response.status >= 300
+        ) {
+            const cfMitigated =
+                response.headers?.[
+                    'cf-mitigated'
+                ];
+
+            if (
+                cfMitigated
+            ) {
+                throw new Error(
+                    `[Educake] Educake/Cloudflare returned HTTP ${response.status} with a challenge response.`
+                );
+            }
+
+            throw new Error(
+                `[Educake] Educake returned HTTP ${response.status}.`
+            );
+        }
+
+        return response;
     }
 
     async sendDetailedRequest(
@@ -437,27 +604,14 @@ class Educake_Requesticator
         );
 
         const response =
-            await this._executeCurl(
+            await this._executeEducakeRequest(
                 url,
-                this.getHeaders(),
                 data,
                 {
-                    returnHeaders: true
+                    returnHeaders:
+                        true
                 }
             );
-
-        if (!response) {
-            console.error(
-                '[Educake_Requesticator] Empty response.'
-            );
-
-            return null;
-        }
-
-        console.log(
-            '[Educake_Requesticator] HTTP status:',
-            response.status
-        );
 
         console.log(
             '[Educake_Requesticator] Response type:',
@@ -466,23 +620,33 @@ class Educake_Requesticator
 
         if (
             response.data &&
-            typeof response.data === 'object' &&
-            !Buffer.isBuffer(response.data)
+            typeof response.data ===
+                'object' &&
+            !Buffer.isBuffer(
+                response.data
+            )
         ) {
             console.log(
                 '[Educake_Requesticator] Response keys:',
-                Object.keys(response.data)
+                Object.keys(
+                    response.data
+                )
             );
+
         } else {
             console.log(
                 '[Educake_Requesticator] Response is not a JSON object.'
             );
         }
 
-        if (response.headers) {
+        if (
+            response.headers
+        ) {
             console.log(
                 '[Educake_Requesticator] Response header names:',
-                Object.keys(response.headers)
+                Object.keys(
+                    response.headers
+                )
             );
         }
 
@@ -499,27 +663,19 @@ class Educake_Requesticator
         );
 
         const response =
-            await this._executeCurl(
+            await this._executeEducakeRequest(
                 url,
-                this.getHeaders(),
                 data,
                 {
-                    returnHeaders: true
+                    returnHeaders:
+                        true
                 }
             );
-
-        if (!response) {
-            return null;
-        }
-
-        console.log(
-            '[Educake_Requesticator] HTTP status:',
-            response.status
-        );
 
         return response.data;
     }
 }
+
 
 module.exports =
     Educake_Requesticator;
