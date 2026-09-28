@@ -520,10 +520,6 @@ class educakeMainMenu {
         this.selectedQuizzes = [];
     }
 
-    // ------------------------------------------------------
-    // MAIN EMBED
-    // ------------------------------------------------------
-
     createMainMenu() {
         const embed =
             new EmbedBuilder()
@@ -568,10 +564,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                 this.lastComponents
         });
     }
-
-    // ------------------------------------------------------
-    // NAVIGATION BUTTONS
-    // ------------------------------------------------------
 
     createNavigationButtons(
         page,
@@ -714,10 +706,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                 )
         ];
     }
-
-    // ------------------------------------------------------
-    // BUILD HOMEWORK MENU
-    // ------------------------------------------------------
 
     async educakeMenu(
         select,
@@ -890,10 +878,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
             components
         });
     }
-
-    // ------------------------------------------------------
-    // LOAD HOMEWORK
-    // ------------------------------------------------------
 
     async main() {
         const userSession =
@@ -1156,19 +1140,13 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                         this.lastComponents =
                             components;
 
-                        await componentInteraction.editReply(
-                            {
-                                embeds: [
-                                    this.mainMenuEmbed
-                                ],
-                                components
-                            }
-                        );
+                        await componentInteraction.editReply({
+                            embeds: [
+                                this.mainMenuEmbed
+                            ],
+                            components
+                        });
                     }
-
-                    // ======================================
-                    // BUTTONS
-                    // ======================================
 
                     else if (
                         componentInteraction.isButton()
@@ -1180,10 +1158,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                             '[Educake] Button:',
                             customId
                         );
-
-                        // ------------------------------
-                        // START
-                        // ------------------------------
 
                         if (
                             customId ===
@@ -1224,10 +1198,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                 this.selectedQuizzes
                             );
                         }
-
-                        // ------------------------------
-                        // PAST QUIZZES
-                        // ------------------------------
 
                         else if (
                             customId ===
@@ -1283,10 +1253,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                             );
                         }
 
-                        // ------------------------------
-                        // CURRENT QUIZZES
-                        // ------------------------------
-
                         else if (
                             customId ===
                             'current_quizzes'
@@ -1340,10 +1306,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                 currentPage
                             );
                         }
-
-                        // ------------------------------
-                        // PAGINATION
-                        // ------------------------------
 
                         else if (
                             customId.startsWith(
@@ -1400,10 +1362,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                             );
                         }
 
-                        // ------------------------------
-                        // SAVE ACCOUNT
-                        // ------------------------------
-
                         else if (
                             customId ===
                             'save_account'
@@ -1443,10 +1401,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                 modal
                             );
                         }
-
-                        // ------------------------------
-                        // SET TIME
-                        // ------------------------------
 
                         else if (
                             customId ===
@@ -1522,10 +1476,6 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
             }
         );
 
-        // ==================================================
-        // COLLECTOR END
-        // ==================================================
-
         collector.on(
             'end',
             async () => {
@@ -1549,14 +1499,12 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                     this.lastComponents =
                         components;
 
-                    await this.interaction.editReply(
-                        {
-                            embeds: [
-                                this.mainMenuEmbed
-                            ],
-                            components
-                        }
-                    );
+                    await this.interaction.editReply({
+                        embeds: [
+                            this.mainMenuEmbed
+                        ],
+                        components
+                    });
                 } catch (error) {
                     console.error(
                         '[Educake] Collector end error:',
@@ -1576,20 +1524,23 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
 async function educake_model_executor(
     interaction
 ) {
+    const customId =
+        interaction.customId || '';
+
     if (
         !interaction.deferred &&
         !interaction.replied &&
-        interaction.customId.startsWith(
+        customId.startsWith(
             'educake_login'
         )
     ) {
         await interaction.deferReply({
-            ephemeral: true
+            flags: 64
         });
     }
 
     if (
-        interaction.customId.startsWith(
+        customId.startsWith(
             'educake_login'
         )
     ) {
@@ -1631,10 +1582,6 @@ async function educake_model_executor(
                 interaction.loginDetails.loginType;
         }
 
-        // --------------------------------------------------
-        // LOADING
-        // --------------------------------------------------
-
         const loadingEmbed =
             new EmbedBuilder()
                 .setColor(EMBED_COLOR)
@@ -1655,10 +1602,6 @@ async function educake_model_executor(
         console.log(
             '[Educake] Calling educakeLogin...'
         );
-
-        // --------------------------------------------------
-        // ACTUAL LOGIN
-        // --------------------------------------------------
 
         let cookie;
 
@@ -1688,10 +1631,6 @@ async function educake_model_executor(
                 : 'FALSE'
         );
 
-        // --------------------------------------------------
-        // LOGIN FAILED
-        // --------------------------------------------------
-
         if (
             !cookie ||
             typeof cookie !== 'string' ||
@@ -1719,9 +1658,9 @@ async function educake_model_executor(
             '[Educake] Login really completed.'
         );
 
-        // --------------------------------------------------
-        // CREATE SESSION
-        // --------------------------------------------------
+        // ==================================================
+        // CREATE EDUCAKE REQUESTICATOR
+        // ==================================================
 
         const educake_Request =
             new Educake_Requesticator(
@@ -1741,10 +1680,37 @@ async function educake_model_executor(
         let authToken;
 
         try {
+            console.log(
+                '[Educake] Requesting /session-token...'
+            );
+
             authToken =
                 await educake_Request.sendRequest(
                     'https://my.educake.co.uk/session-token'
                 );
+
+            // IMPORTANT:
+            // Do NOT log the actual response because it
+            // could contain a usable authentication token.
+            if (
+                authToken &&
+                typeof authToken === 'object'
+            ) {
+                console.log(
+                    '[Educake] Session-token response keys:',
+                    Object.keys(authToken)
+                );
+            } else {
+                console.log(
+                    '[Educake] Session-token response type:',
+                    typeof authToken
+                );
+
+                console.log(
+                    '[Educake] Session-token response was not an object.'
+                );
+            }
+
         } catch (error) {
             console.error(
                 '[Educake] Session-token request failed:',
@@ -1758,7 +1724,37 @@ async function educake_model_executor(
                         '❌ Session Error'
                     )
                     .setDescription(
-                        'Login succeeded, but Educake did not provide a session token.'
+                        'Login succeeded, but the Educake session-token request failed.'
+                    );
+
+            await interaction.editReply({
+                embeds: [embed],
+                components: []
+            });
+
+            return;
+        }
+
+        // ==================================================
+        // VALIDATE SESSION TOKEN
+        // ==================================================
+
+        if (
+            !authToken ||
+            typeof authToken !== 'object'
+        ) {
+            console.error(
+                '[Educake] Session-token response was empty or invalid.'
+            );
+
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Session Error'
+                    )
+                    .setDescription(
+                        'Educake login succeeded, but Educake did not return a valid session response.'
                     );
 
             await interaction.editReply({
@@ -1770,12 +1766,15 @@ async function educake_model_executor(
         }
 
         if (
-            !authToken ||
             !authToken.accessToken
         ) {
             console.error(
-                '[Educake] Invalid session token response:',
-                authToken
+                '[Educake] Educake did not provide accessToken.'
+            );
+
+            console.error(
+                '[Educake] Response keys:',
+                Object.keys(authToken)
             );
 
             const embed =
@@ -1785,7 +1784,7 @@ async function educake_model_executor(
                         '❌ Session Error'
                     )
                     .setDescription(
-                        'Educake returned an invalid session token.'
+                        'Educake login succeeded, but Educake did not provide a session token.'
                     );
 
             await interaction.editReply({
@@ -1796,6 +1795,10 @@ async function educake_model_executor(
             return;
         }
 
+        console.log(
+            '[Educake] Session token received successfully.'
+        );
+
         educake_Request.sessionToken =
             authToken.accessToken;
 
@@ -1804,12 +1807,12 @@ async function educake_model_executor(
         ] = educake_Request;
 
         console.log(
-            '[Educake] Session token received.'
+            '[Educake] Educake session stored.'
         );
 
-        // --------------------------------------------------
+        // ==================================================
         // LOAD ACCOUNT
-        // --------------------------------------------------
+        // ==================================================
 
         let account;
 
@@ -1834,9 +1837,9 @@ async function educake_model_executor(
                 max: 10
             };
 
-        // --------------------------------------------------
+        // ==================================================
         // LOGIN SUCCESS
-        // --------------------------------------------------
+        // ==================================================
 
         const loginSuccessEmbed =
             new EmbedBuilder()
@@ -1855,9 +1858,9 @@ async function educake_model_executor(
             components: []
         });
 
-        // --------------------------------------------------
+        // ==================================================
         // LOAD HOMEWORK
-        // --------------------------------------------------
+        // ==================================================
 
         console.log(
             '[Educake] Loading homework menu...'
@@ -1879,6 +1882,7 @@ async function educake_model_executor(
             console.log(
                 '[Educake] Homework menu loaded.'
             );
+
         } catch (error) {
             console.error(
                 '[Educake] Homework loading failed:',
@@ -2002,10 +2006,6 @@ async function educake_collector(
                     return;
                 }
 
-                // ------------------------------------------
-                // LOGIN BUTTON
-                // ------------------------------------------
-
                 const loginBtn =
                     new ButtonBuilder()
                         .setCustomId(
@@ -2049,10 +2049,6 @@ async function educake_collector(
                         withResponse: true
                     });
 
-                // ------------------------------------------
-                // GET RESPONSE MESSAGE
-                // ------------------------------------------
-
                 let responseMessage =
                     message?.resource?.message;
 
@@ -2067,10 +2063,6 @@ async function educake_collector(
                     );
                     return;
                 }
-
-                // ------------------------------------------
-                // LOGIN BUTTON COLLECTOR
-                // ------------------------------------------
 
                 const innerCollector =
                     responseMessage.createMessageComponentCollector(
@@ -2090,10 +2082,6 @@ async function educake_collector(
                             ) {
                                 return;
                             }
-
-                            // ------------------------------
-                            // LOGIN MODAL
-                            // ------------------------------
 
                             const modal =
                                 new ModalBuilder()
@@ -2134,10 +2122,6 @@ async function educake_collector(
                                         true
                                     );
 
-                            // ------------------------------
-                            // LOGIN TYPE DROPDOWN
-                            // ------------------------------
-
                             const typeInput =
                                 new StringSelectMenuBuilder()
                                     .setCustomId(
@@ -2174,14 +2158,6 @@ async function educake_collector(
                                                 '🔵'
                                         }
                                     );
-
-                            /*
-                             * LabelBuilder is intentionally kept here.
-                             *
-                             * It is being used for the MODAL's
-                             * login-type field, not for a message
-                             * Components V2 container.
-                             */
 
                             const typeLabel =
                                 new LabelBuilder({
