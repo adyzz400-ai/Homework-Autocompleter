@@ -3,43 +3,63 @@ require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const delay = ms =>
+    new Promise(resolve => setTimeout(resolve, ms));
 
 puppeteer.use(StealthPlugin());
 
-const smartLogin = require('../utils/smartLogin');
+const smartLogin =
+    require('../utils/smartLogin');
 
-async function educakeLogin(username, password, loginType, on2FA) {
+async function educakeLogin(
+    username,
+    password,
+    loginType,
+    on2FA
+) {
     let browser = null;
 
     try {
-        console.log('[Educake] Starting Chrome...');
+        console.log(
+            '[Educake] Starting Chrome...'
+        );
 
         browser = await puppeteer.launch({
             headless: true,
             timeout: 30000
         });
 
-        console.log('[Educake] Chrome started.');
+        console.log(
+            '[Educake] Chrome started.'
+        );
 
-        const page = await browser.newPage();
+        const page =
+            await browser.newPage();
 
-        console.log('[Educake] Opening Educake login page...');
+        console.log(
+            '[Educake] Opening Educake login page...'
+        );
 
         try {
-            const response = await page.goto(
-                'https://my.educake.co.uk/student-login',
-                {
-                    waitUntil: 'domcontentloaded',
-                    timeout: 30000
-                }
-            );
+            const response =
+                await page.goto(
+                    'https://my.educake.co.uk/student-login',
+                    {
+                        waitUntil:
+                            'domcontentloaded',
+                        timeout: 30000
+                    }
+                );
 
-            console.log('[Educake] page.goto() finished.');
+            console.log(
+                '[Educake] page.goto() finished.'
+            );
 
             console.log(
                 '[Educake] HTTP status:',
-                response ? response.status() : 'no response'
+                response
+                    ? response.status()
+                    : 'no response'
             );
 
             console.log(
@@ -48,19 +68,26 @@ async function educakeLogin(username, password, loginType, on2FA) {
             );
 
         } catch (error) {
-            console.error('[Educake] page.goto() FAILED:');
+            console.error(
+                '[Educake] page.goto() FAILED:'
+            );
+
             console.error(error);
 
             throw error;
         }
 
-        console.log('[Educake] Login page loaded.');
+        console.log(
+            '[Educake] Login page loaded.'
+        );
 
-        // --------------------------------------------------
+        // ==================================================
         // COOKIE BANNER
-        // --------------------------------------------------
+        // ==================================================
 
-        console.log('[Educake] Checking cookie banner...');
+        console.log(
+            '[Educake] Checking cookie banner...'
+        );
 
         try {
             await page.waitForSelector(
@@ -71,30 +98,42 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 }
             );
 
-            console.log('[Educake] Cookie banner found.');
+            console.log(
+                '[Educake] Cookie banner found.'
+            );
 
             await page.click(
                 '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
             );
 
-            console.log('[Educake] Cookie consent accepted.');
+            console.log(
+                '[Educake] Cookie consent accepted.'
+            );
 
             await delay(500);
 
         } catch {
-            console.log('[Educake] No cookie banner found.');
+            console.log(
+                '[Educake] No cookie banner found.'
+            );
         }
 
-        console.log('[Educake] Continuing to login flow...');
+        console.log(
+            '[Educake] Continuing to login flow...'
+        );
 
-        // --------------------------------------------------
+        // ==================================================
         // NORMAL LOGIN
-        // --------------------------------------------------
+        // ==================================================
 
         if (loginType === 'Normal') {
-            console.log('[Educake] Using Normal login...');
+            console.log(
+                '[Educake] Using Normal login...'
+            );
 
-            console.log('[Educake] Waiting for username field...');
+            console.log(
+                '[Educake] Waiting for username field...'
+            );
 
             await page.waitForSelector(
                 'input[name="username"]',
@@ -104,14 +143,18 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 }
             );
 
-            console.log('[Educake] Username field found.');
+            console.log(
+                '[Educake] Username field found.'
+            );
 
             await page.type(
                 'input[name="username"]',
                 username
             );
 
-            console.log('[Educake] Waiting for password field...');
+            console.log(
+                '[Educake] Waiting for password field...'
+            );
 
             await page.waitForSelector(
                 'input[name="password"]',
@@ -121,18 +164,23 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 }
             );
 
-            console.log('[Educake] Password field found.');
+            console.log(
+                '[Educake] Password field found.'
+            );
 
-            // --------------------------------------------------
+            // ==================================================
             // PASSWORD ENTRY
-            // --------------------------------------------------
+            // ==================================================
 
-            console.log('[Educake] Filling password field...');
+            console.log(
+                '[Educake] Filling password field...'
+            );
 
             await page.$eval(
                 'input[name="password"]',
                 (element, value) => {
                     element.focus();
+
                     element.value = value;
 
                     element.dispatchEvent(
@@ -150,11 +198,13 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 password
             );
 
-            console.log('[Educake] Password field filled.');
+            console.log(
+                '[Educake] Password field filled.'
+            );
 
-            // --------------------------------------------------
+            // ==================================================
             // LOGIN BUTTON
-            // --------------------------------------------------
+            // ==================================================
 
             const loginButtonSelector =
                 'button[type="submit"]';
@@ -179,48 +229,54 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 '[Educake] Clicking login button...'
             );
 
-            await page.click(loginButtonSelector);
+            await page.click(
+                loginButtonSelector
+            );
 
             console.log(
                 '[Educake] Login button clicked.'
             );
 
+            // ==================================================
+            // LOGIN COMPLETION
+            // ==================================================
+
             console.log(
                 '[Educake] Waiting for login to complete...'
             );
 
-            try {
-                await page.waitForFunction(
-                    () =>
-                        window.location.href.includes(
-                            '/my-educake'
-                        ),
-                    {
-                        timeout: 15000
-                    }
-                );
+            await delay(3000);
 
-                console.log(
-                    '[Educake] Login redirect detected.'
-                );
-
-            } catch {
-                console.log(
-                    '[Educake] No redirect detected.'
-                );
-            }
-
-            await delay(2000);
+            console.log(
+                '[Educake] Login request has had time to complete.'
+            );
 
             console.log(
                 '[Educake] Current URL after login:',
                 page.url()
             );
+
+            const currentCookies =
+                await page.cookies();
+
+            console.log(
+                `[Educake] Cookies after login: ${currentCookies.length}`
+            );
+
+            const cookieNames =
+                currentCookies.map(
+                    cookie => cookie.name
+                );
+
+            console.log(
+                '[Educake] Cookie names:',
+                cookieNames.join(', ')
+            );
         }
 
-        // --------------------------------------------------
+        // ==================================================
         // GOOGLE / MICROSOFT LOGIN
-        // --------------------------------------------------
+        // ==================================================
 
         else {
             console.log(
@@ -228,7 +284,9 @@ async function educakeLogin(username, password, loginType, on2FA) {
             );
 
             const buttonIndex =
-                loginType === 'Google' ? 0 : 1;
+                loginType === 'Google'
+                    ? 0
+                    : 1;
 
             console.log(
                 '[Educake] Waiting for SSO buttons...'
@@ -246,25 +304,29 @@ async function educakeLogin(username, password, loginType, on2FA) {
                 '[Educake] SSO buttons found.'
             );
 
-            await page.evaluate(index => {
-                const buttons =
-                    document.querySelectorAll(
-                        '.sso-login.btn.white'
-                    );
+            await page.evaluate(
+                index => {
+                    const buttons =
+                        document.querySelectorAll(
+                            '.sso-login.btn.white'
+                        );
 
-                if (buttons[index]) {
-                    buttons[index].click();
-                }
-            }, buttonIndex);
+                    if (buttons[index]) {
+                        buttons[index].click();
+                    }
+                },
+                buttonIndex
+            );
 
             console.log(
                 '[Educake] SSO button clicked.'
             );
 
-            const landedFunction = ({ url }) =>
-                url.includes(
-                    'my.educake.co.uk/my-educake'
-                );
+            const landedFunction =
+                ({ url }) =>
+                    url.includes(
+                        'my.educake.co.uk/my-educake'
+                    );
 
             await smartLogin(
                 page,
@@ -286,9 +348,9 @@ async function educakeLogin(username, password, loginType, on2FA) {
             );
         }
 
-        // --------------------------------------------------
+        // ==================================================
         // VERIFY LOGIN
-        // --------------------------------------------------
+        // ==================================================
 
         console.log(
             '[Educake] Login flow completed.'
@@ -314,16 +376,23 @@ async function educakeLogin(username, password, loginType, on2FA) {
             '_dd_s'
         ];
 
-        const cookiesMap = new Map(
-            cookiesArray.map(cookie => [
-                cookie.name,
-                `${cookie.name}=${cookie.value}`
-            ])
-        );
+        const cookiesMap =
+            new Map(
+                cookiesArray.map(
+                    cookie => [
+                        cookie.name,
+                        `${cookie.name}=${cookie.value}`
+                    ]
+                )
+            );
 
-        const orderedCookies = desiredOrder
-            .map(name => cookiesMap.get(name))
-            .filter(Boolean);
+        const orderedCookies =
+            desiredOrder
+                .map(
+                    name =>
+                        cookiesMap.get(name)
+                )
+                .filter(Boolean);
 
         const cookieHeader =
             orderedCookies.join('; ');
