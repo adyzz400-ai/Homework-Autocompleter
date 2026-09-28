@@ -778,5 +778,6 @@ async function closeEducakeSession(
 module.exports = {
     educakeLogin,
     browserRequest,
+    verifyEducakeSession,
     closeEducakeSession
 };
