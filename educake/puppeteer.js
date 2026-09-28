@@ -3,6 +3,19 @@ require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 
+// Enable the stealth plugin
+puppeteer.use(StealthPlugin());
+
+// Replace your old launch code with this:
+const browser = await puppeteer.launch({
+  headless: true,
+  args: [
+    '--no-sandbox',                // Required for Linux/Render environments
+    '--disable-setuid-sandbox',    // Required for Linux/Render environments
+    '--disable-blink-features=AutomationControlled'
+  ]
+});
+
 const smartLogin =
     require('../utils/smartLogin');
 
