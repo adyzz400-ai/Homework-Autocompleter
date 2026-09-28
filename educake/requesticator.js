@@ -64,79 +64,110 @@ class PythonWorker {
             }
         );
 
-        this.process.stdout.on('data', data => {
-            const output = data.toString();
+        this.process.stdout.on(
+            'data',
+            data => {
+                const output =
+                    data.toString();
 
-            console.log(
-                '[PythonWorker] stdout:',
-                output.trim()
-            );
-
-            this.buffer += output;
-            this.processBuffer();
-        });
-
-        this.process.stderr.on('data', data => {
-            console.error(
-                '[PythonWorker] stderr:',
-                data.toString().trim()
-            );
-        });
-
-        this.process.on('error', error => {
-            console.error(
-                '[PythonWorker] Process error:',
-                error.message
-            );
-
-            if (this.currentResolver) {
-                this.currentResolver.reject(error);
-                this.currentResolver = null;
-            }
-        });
-
-        this.process.on('close', code => {
-            console.log(
-                `[PythonWorker] Worker exited with code ${code}`
-            );
-
-            this.process = null;
-
-            if (this.currentResolver) {
-                this.currentResolver.reject(
-                    new Error(
-                        'Python worker process exited unexpectedly'
-                    )
+                console.log(
+                    '[PythonWorker] stdout:',
+                    output.trim()
                 );
 
-                this.currentResolver = null;
-            }
+                this.buffer += output;
 
-            this.buffer = '';
-        });
+                this.processBuffer();
+            }
+        );
+
+        this.process.stderr.on(
+            'data',
+            data => {
+                console.error(
+                    '[PythonWorker] stderr:',
+                    data.toString().trim()
+                );
+            }
+        );
+
+        this.process.on(
+            'error',
+            error => {
+                console.error(
+                    '[PythonWorker] Process error:',
+                    error.message
+                );
+
+                if (this.currentResolver) {
+                    this.currentResolver.reject(
+                        error
+                    );
+
+                    this.currentResolver =
+                        null;
+                }
+            }
+        );
+
+        this.process.on(
+            'close',
+            code => {
+                console.log(
+                    `[PythonWorker] Worker exited with code ${code}`
+                );
+
+                this.process = null;
+
+                if (this.currentResolver) {
+                    this.currentResolver.reject(
+                        new Error(
+                            'Python worker process exited unexpectedly'
+                        )
+                    );
+
+                    this.currentResolver =
+                        null;
+                }
+
+                this.buffer = '';
+            }
+        );
     }
 
     processBuffer() {
         let newlineIndex;
 
         while (
-            (newlineIndex = this.buffer.indexOf('\n')) !== -1
+            (
+                newlineIndex =
+                    this.buffer.indexOf('\n')
+            ) !== -1
         ) {
-            const line = this.buffer
-                .slice(0, newlineIndex)
-                .trim();
+            const line =
+                this.buffer
+                    .slice(0, newlineIndex)
+                    .trim();
 
-            this.buffer = this.buffer.slice(
-                newlineIndex + 1
-            );
+            this.buffer =
+                this.buffer.slice(
+                    newlineIndex + 1
+                );
 
-            if (line && this.currentResolver) {
+            if (
+                line &&
+                this.currentResolver
+            ) {
                 console.log(
                     '[PythonWorker] Response line received.'
                 );
 
-                this.currentResolver.resolve(line);
-                this.currentResolver = null;
+                this.currentResolver.resolve(
+                    line
+                );
+
+                this.currentResolver =
+                    null;
             }
         }
     }
@@ -218,18 +249,21 @@ class curlRequesticator {
         };
 
         if (Array.isArray(headers)) {
-            headers.forEach(h => {
-                const parts = h.split(':');
+            headers.forEach(header => {
+                const parts =
+                    header.split(':');
 
                 if (parts.length >= 2) {
-                    const key = parts[0]
-                        .trim()
-                        .toLowerCase();
+                    const key =
+                        parts[0]
+                            .trim()
+                            .toLowerCase();
 
-                    const value = parts
-                        .slice(1)
-                        .join(':')
-                        .trim();
+                    const value =
+                        parts
+                            .slice(1)
+                            .join(':')
+                            .trim();
 
                     requestData.headers[key] =
                         value;
@@ -243,6 +277,7 @@ class curlRequesticator {
 
             requestData.is_binary_data =
                 true;
+
         } else if (data) {
             requestData.data =
                 typeof data === 'object'
@@ -269,14 +304,14 @@ class curlRequesticator {
             try {
                 result =
                     JSON.parse(responseLine);
+
             } catch (parseError) {
                 console.error(
                     '[curlRequesticator] Invalid JSON from Python worker.'
                 );
 
                 console.error(
-                    '[curlRequesticator] Response:',
-                    responseLine
+                    '[curlRequesticator] Response was not valid JSON.'
                 );
 
                 throw parseError;
@@ -310,7 +345,9 @@ class curlRequesticator {
                 options.responseType ===
                 'arraybuffer'
             ) {
-                responseBody = bodyBuffer;
+                responseBody =
+                    bodyBuffer;
+
             } else {
                 const bodyString =
                     bodyBuffer.toString(
@@ -322,6 +359,7 @@ class curlRequesticator {
                         JSON.parse(
                             bodyString
                         );
+
                 } catch {
                     responseBody =
                         bodyString;
@@ -336,8 +374,10 @@ class curlRequesticator {
                 return {
                     status:
                         result.statusCode,
+
                     headers:
                         result.headers,
+
                     data:
                         responseBody
                 };
@@ -345,28 +385,20 @@ class curlRequesticator {
 
             return responseBody;
 
-        } catch (e) {
+        } catch (error) {
             console.error(
                 '[curlRequesticator] Python Request Failed:',
-                e.message
+                error.message
             );
 
-            throw e;
+            throw error;
         }
     }
 }
 
-
-/*
- * Educake Requesticator
- *
- * This is the class imported by:
- *
- * require('./requesticator.js')
- *
- * It provides the sendRequest() method
- * required by educake/main.js.
- */
+// ==========================================================
+// EDUCAKE REQUESTICATOR
+// ==========================================================
 
 class Educake_Requesticator
     extends curlRequesticator {
@@ -378,6 +410,7 @@ class Educake_Requesticator
         super(cookies);
 
         this.login = login;
+
         this.sessionToken = null;
     }
 
@@ -385,6 +418,20 @@ class Educake_Requesticator
         url,
         data = null
     ) {
+        console.log(
+            '[Educake_Requesticator] sendRequest called.'
+        );
+
+        console.log(
+            '[Educake_Requesticator] URL:',
+            url
+        );
+
+        console.log(
+            '[Educake_Requesticator] Method:',
+            data ? 'POST' : 'GET'
+        );
+
         const headers = [
             'accept: application/json;version=2',
             'accept-language: en-GB,en;q=0.9,en-US;q=0.8',
@@ -401,27 +448,92 @@ class Educake_Requesticator
             headers.push(
                 `authorization: Bearer ${this.sessionToken}`
             );
+
+            console.log(
+                '[Educake_Requesticator] Authorization header added.'
+            );
+        } else {
+            console.log(
+                '[Educake_Requesticator] No session token currently set.'
+            );
         }
 
-        return this._executeCurl(
-            url,
-            headers,
-            data
+        console.log(
+            '[Educake_Requesticator] Sending request...'
         );
+
+        const response =
+            await this._executeCurl(
+                url,
+                headers,
+                data,
+                {
+                    returnHeaders: true
+                }
+            );
+
+        // ==================================================
+        // SAFE RESPONSE DIAGNOSTICS
+        // ==================================================
+
+        console.log(
+            '[Educake_Requesticator] Request completed.'
+        );
+
+        if (!response) {
+            console.error(
+                '[Educake_Requesticator] Response is empty.'
+            );
+
+            return null;
+        }
+
+        console.log(
+            '[Educake_Requesticator] HTTP status:',
+            response.status
+        );
+
+        console.log(
+            '[Educake_Requesticator] Response data type:',
+            typeof response.data
+        );
+
+        if (
+            response.data &&
+            typeof response.data === 'object' &&
+            !Buffer.isBuffer(response.data)
+        ) {
+            console.log(
+                '[Educake_Requesticator] Response keys:',
+                Object.keys(
+                    response.data
+                )
+            );
+        } else {
+            console.log(
+                '[Educake_Requesticator] Response is not a JSON object.'
+            );
+        }
+
+        if (response.headers) {
+            console.log(
+                '[Educake_Requesticator] Response headers received:',
+                Object.keys(
+                    response.headers
+                )
+            );
+        } else {
+            console.log(
+                '[Educake_Requesticator] No response headers returned.'
+            );
+        }
+
+        // NEVER log response.data itself.
+        // It may contain authentication information.
+
+        return response.data;
     }
 }
-
-
-/*
- * Export Educake_Requesticator
- *
- * IMPORTANT:
- * Do not change this back to:
- *
- * module.exports = curlRequesticator;
- *
- * because main.js needs sendRequest().
- */
 
 module.exports =
     Educake_Requesticator;
