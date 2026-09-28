@@ -1,10 +1,7 @@
 const {
+    EmbedBuilder,
     StringSelectMenuOptionBuilder,
     LabelBuilder,
-    SeparatorSpacingSize,
-    SeparatorBuilder,
-    ContainerBuilder,
-    TextDisplayBuilder,
     ActionRowBuilder,
     ButtonBuilder,
     ModalBuilder,
@@ -21,8 +18,11 @@ const {
     footerIcon
 } = require('../startEmbeds/info.js');
 
-const getProgressBar = require('../utils/getProgressBar');
-const formatTime = require('../utils/formatTime');
+const getProgressBar =
+    require('../utils/getProgressBar');
+
+const formatTime =
+    require('../utils/formatTime');
 
 const {
     checkAccount,
@@ -74,15 +74,16 @@ const userMenus = {};
 
 const EMBED_COLOR = 0x7a5b99;
 
+
+// ==========================================================
+// SAVE ACCOUNT BUTTON
+// ==========================================================
+
 const saveAccountBtn = new ButtonBuilder()
     .setCustomId('save_account')
     .setLabel('Save Account')
     .setEmoji(emojis.save_account)
     .setStyle(ButtonStyle.Secondary);
-
-const seperator = new SeparatorBuilder({
-    spacing: SeparatorSpacingSize.Small
-});
 
 
 // ==========================================================
@@ -118,6 +119,13 @@ async function educake_autocompleter(
             .setColor(EMBED_COLOR)
             .setTitle('Educake Autocompleter')
             .setDescription('`Starting...`');
+
+    if (footerText) {
+        initialEmbed.setFooter({
+            text: footerText,
+            iconURL: footerIcon || undefined
+        });
+    }
 
     const sectionsProgress = [];
     let currentGroup = [];
@@ -504,21 +512,27 @@ class educakeMainMenu {
         this.timeSettings =
             timeSettings;
 
-        this.mainMenuSection =
+        this.mainMenuEmbed =
             this.createMainMenu();
-
-        this.container = null;
 
         this.accountId = null;
 
         this.selectedQuizzes = [];
     }
 
+    // ------------------------------------------------------
+    // MAIN EMBED
+    // ------------------------------------------------------
+
     createMainMenu() {
-        return new TextDisplayBuilder()
-            .setContent(
-                `### Educake Homework Selection
-Select one of the homeworks below and it will automatically be completed for you!
+        const embed =
+            new EmbedBuilder()
+                .setColor(EMBED_COLOR)
+                .setTitle(
+                    'Educake Homework Selection'
+                )
+                .setDescription(
+                    `Select one of the homeworks below and it will automatically be completed for you!
 
 **❓ What is Time?**
 Time is the amount of time the bot will wait for each question. This is **PER QUESTION**, not per homework. Recommended time is 5-10 Seconds per question.
@@ -526,34 +540,38 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
 **⏰ Time**: ${this.timeSettings.min}-${this.timeSettings.max} Seconds Per Question
 
 **Important: Retry the Homework a second time to get a better accuracy**`
-            );
+                );
+
+        if (footerText) {
+            embed.setFooter({
+                text: footerText,
+                iconURL: footerIcon || undefined
+            });
+        }
+
+        return embed;
     }
 
     async updateMainMenu() {
-        this.mainMenuSection =
+        this.mainMenuEmbed =
             this.createMainMenu();
 
-        if (
-            this.container?.components?.[0]
-                ?.data
-        ) {
-            this.container
-                .components[0]
-                .data.content =
-                this.mainMenuSection
-                    .data.content;
+        if (!this.lastComponents) {
+            return;
         }
 
-        if (this.container) {
-            await this.interaction.editReply(
-                {
-                    components: [
-                        this.container
-                    ]
-                }
-            );
-        }
+        await this.interaction.editReply({
+            embeds: [
+                this.mainMenuEmbed
+            ],
+            components:
+                this.lastComponents
+        });
     }
+
+    // ------------------------------------------------------
+    // NAVIGATION BUTTONS
+    // ------------------------------------------------------
 
     createNavigationButtons(
         page,
@@ -697,6 +715,10 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
         ];
     }
 
+    // ------------------------------------------------------
+    // BUILD HOMEWORK MENU
+    // ------------------------------------------------------
+
     async educakeMenu(
         select,
         latestQuizes,
@@ -714,30 +736,20 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                 latestQuizes
             );
 
-            const section =
-                new TextDisplayBuilder()
-                    .setContent(
-                        `### ❌ Unable to Load Homework
-Educake did not return a valid homework list. Please try logging in again.`
-                    );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0xff474d
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Unable to Load Homework'
                     )
-                    .addTextDisplayComponents(
-                        section.data
+                    .setDescription(
+                        'Educake did not return a valid homework list. Please try logging in again.'
                     );
 
-            await this.interaction.editReply(
-                {
-                    flags: 32768 | 64,
-                    components: [
-                        container
-                    ]
-                }
-            );
+            await this.interaction.editReply({
+                embeds: [embed],
+                components: []
+            });
 
             return null;
         }
@@ -863,46 +875,25 @@ Educake did not return a valid homework list. Please try logging in again.`
                 disabledAll
             );
 
-        const container =
-            new ContainerBuilder()
-                .setAccentColor(
-                    EMBED_COLOR
-                )
-                .addTextDisplayComponents(
-                    this.mainMenuSection.data
-                );
+        const components = [
+            selectRow,
+            ...buttonRows
+        ];
 
-        container.addSeparatorComponents(
-            seperator
-        );
+        this.lastComponents =
+            components;
 
-        if (
-            selectRow.components[0]
-                .options.length
-        ) {
-            container.addActionRowComponents(
-                selectRow
-            );
-        }
-
-        buttonRows.forEach(row =>
-            container.addActionRowComponents(
-                row
-            )
-        );
-
-        this.container =
-            container;
-
-        return await this.interaction.editReply(
-            {
-                flags: 32768 | 64,
-                components: [
-                    container
-                ]
-            }
-        );
+        return await this.interaction.editReply({
+            embeds: [
+                this.mainMenuEmbed
+            ],
+            components
+        });
     }
+
+    // ------------------------------------------------------
+    // LOAD HOMEWORK
+    // ------------------------------------------------------
 
     async main() {
         const userSession =
@@ -1124,32 +1115,16 @@ Educake did not return a valid homework list. Please try logging in again.`
                             );
                         }
 
-                        const container =
-                            new ContainerBuilder()
-                                .setAccentColor(
-                                    EMBED_COLOR
-                                )
-                                .addTextDisplayComponents(
-                                    this.mainMenuSection.data
-                                )
-                                .addSeparatorComponents(
-                                    seperator
-                                )
-                                .addActionRowComponents(
-                                    new ActionRowBuilder()
-                                        .addComponents(
-                                            disabledSelect
-                                        )
-                                );
-
-                        this.createNavigationButtons(
-                            currentPage,
-                            false
-                        ).forEach(row =>
-                            container.addActionRowComponents(
-                                row
+                        const components = [
+                            new ActionRowBuilder()
+                                .addComponents(
+                                    disabledSelect
+                                ),
+                            ...this.createNavigationButtons(
+                                currentPage,
+                                false
                             )
-                        );
+                        ];
 
                         if (
                             this.selectedQuizzes
@@ -1170,7 +1145,7 @@ Educake did not return a valid homework list. Please try logging in again.`
                                         ButtonStyle.Success
                                     );
 
-                            container.addActionRowComponents(
+                            components.push(
                                 new ActionRowBuilder()
                                     .addComponents(
                                         startButton
@@ -1178,14 +1153,22 @@ Educake did not return a valid homework list. Please try logging in again.`
                             );
                         }
 
+                        this.lastComponents =
+                            components;
+
                         await componentInteraction.editReply(
                             {
-                                components: [
-                                    container
-                                ]
+                                embeds: [
+                                    this.mainMenuEmbed
+                                ],
+                                components
                             }
                         );
                     }
+
+                    // ======================================
+                    // BUTTONS
+                    // ======================================
 
                     else if (
                         componentInteraction.isButton()
@@ -1197,6 +1180,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                             '[Educake] Button:',
                             customId
                         );
+
+                        // ------------------------------
+                        // START
+                        // ------------------------------
 
                         if (
                             customId ===
@@ -1237,6 +1224,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                                 this.selectedQuizzes
                             );
                         }
+
+                        // ------------------------------
+                        // PAST QUIZZES
+                        // ------------------------------
 
                         else if (
                             customId ===
@@ -1292,6 +1283,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                             );
                         }
 
+                        // ------------------------------
+                        // CURRENT QUIZZES
+                        // ------------------------------
+
                         else if (
                             customId ===
                             'current_quizzes'
@@ -1345,6 +1340,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                                 currentPage
                             );
                         }
+
+                        // ------------------------------
+                        // PAGINATION
+                        // ------------------------------
 
                         else if (
                             customId.startsWith(
@@ -1401,6 +1400,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                             );
                         }
 
+                        // ------------------------------
+                        // SAVE ACCOUNT
+                        // ------------------------------
+
                         else if (
                             customId ===
                             'save_account'
@@ -1440,6 +1443,10 @@ Educake did not return a valid homework list. Please try logging in again.`
                                 modal
                             );
                         }
+
+                        // ------------------------------
+                        // SET TIME
+                        // ------------------------------
 
                         else if (
                             customId ===
@@ -1515,6 +1522,10 @@ Educake did not return a valid homework list. Please try logging in again.`
             }
         );
 
+        // ==================================================
+        // COLLECTOR END
+        // ==================================================
+
         collector.on(
             'end',
             async () => {
@@ -1527,38 +1538,23 @@ Educake did not return a valid homework list. Please try logging in again.`
                                 select
                             );
 
-                    const container =
-                        new ContainerBuilder()
-                            .setAccentColor(
-                                EMBED_COLOR
-                            )
-                            .addTextDisplayComponents(
-                                this.mainMenuSection.data
-                            )
-                            .addSeparatorComponents(
-                                seperator
-                            )
-                            .addActionRowComponents(
-                                row
-                            );
-
-                    this.createNavigationButtons(
-                        currentPage,
-                        true
-                    ).forEach(buttonRow =>
-                        container.addActionRowComponents(
-                            buttonRow
+                    const components = [
+                        row,
+                        ...this.createNavigationButtons(
+                            currentPage,
+                            true
                         )
-                    );
+                    ];
 
-                    this.container =
-                        container;
+                    this.lastComponents =
+                        components;
 
                     await this.interaction.editReply(
                         {
-                            components: [
-                                container
-                            ]
+                            embeds: [
+                                this.mainMenuEmbed
+                            ],
+                            components
                         }
                     );
                 } catch (error) {
@@ -1588,7 +1584,7 @@ async function educake_model_executor(
         )
     ) {
         await interaction.deferReply({
-            flags: 64
+            ephemeral: true
         });
     }
 
@@ -1636,28 +1632,24 @@ async function educake_model_executor(
         }
 
         // --------------------------------------------------
-        // SHOW LOADING
+        // LOADING
         // --------------------------------------------------
 
-        const loadingSection =
-            new TextDisplayBuilder()
-                .setContent(
-                    `### Logging In... :hourglass:\nAttempting to log in to your account...`
-                );
-
-        const loadingContainer =
-            new ContainerBuilder()
-                .setAccentColor(
-                    EMBED_COLOR
+        const loadingEmbed =
+            new EmbedBuilder()
+                .setColor(EMBED_COLOR)
+                .setTitle(
+                    'Logging In... :hourglass:'
                 )
-                .addTextDisplayComponents(
-                    loadingSection.data
+                .setDescription(
+                    'Attempting to log in to your account...'
                 );
 
         await interaction.editReply({
-            components: [
-                loadingContainer
-            ]
+            embeds: [
+                loadingEmbed
+            ],
+            components: []
         });
 
         console.log(
@@ -1697,7 +1689,7 @@ async function educake_model_executor(
         );
 
         // --------------------------------------------------
-        // DO NOT SHOW SUCCESS UNLESS LOGIN REALLY WORKED
+        // LOGIN FAILED
         // --------------------------------------------------
 
         if (
@@ -1705,27 +1697,19 @@ async function educake_model_executor(
             typeof cookie !== 'string' ||
             cookie.length < 50
         ) {
-            const section =
-                new TextDisplayBuilder()
-                    .setContent(
-                        `### ❌ Login Failed
-Unable to log in to your Educake account. Please check your login details and try again.`
-                    );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0xff474d
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Login Failed'
                     )
-                    .addTextDisplayComponents(
-                        section.data
+                    .setDescription(
+                        'Unable to log in to your Educake account. Please check your login details and try again.'
                     );
 
             await interaction.editReply({
-                flags: 32768 | 64,
-                components: [
-                    container
-                ]
+                embeds: [embed],
+                components: []
             });
 
             return;
@@ -1767,27 +1751,19 @@ Unable to log in to your Educake account. Please check your login details and tr
                 error
             );
 
-            const section =
-                new TextDisplayBuilder()
-                    .setContent(
-                        `### ❌ Session Error
-Login succeeded, but Educake did not provide a session token.`
-                    );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0xff474d
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Session Error'
                     )
-                    .addTextDisplayComponents(
-                        section.data
+                    .setDescription(
+                        'Login succeeded, but Educake did not provide a session token.'
                     );
 
             await interaction.editReply({
-                flags: 32768 | 64,
-                components: [
-                    container
-                ]
+                embeds: [embed],
+                components: []
             });
 
             return;
@@ -1802,27 +1778,19 @@ Login succeeded, but Educake did not provide a session token.`
                 authToken
             );
 
-            const section =
-                new TextDisplayBuilder()
-                    .setContent(
-                        `### ❌ Session Error
-Educake returned an invalid session token.`
-                    );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0xff474d
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Session Error'
                     )
-                    .addTextDisplayComponents(
-                        section.data
+                    .setDescription(
+                        'Educake returned an invalid session token.'
                     );
 
             await interaction.editReply({
-                flags: 32768 | 64,
-                components: [
-                    container
-                ]
+                embeds: [embed],
+                components: []
             });
 
             return;
@@ -1867,30 +1835,24 @@ Educake returned an invalid session token.`
             };
 
         // --------------------------------------------------
-        // SHOW SUCCESS ONLY AFTER LOGIN + SESSION
+        // LOGIN SUCCESS
         // --------------------------------------------------
 
-        const loginSuccessSection =
-            new TextDisplayBuilder()
-                .setContent(
-                    `### ✅ Login Successful
-Successfully logged into your Educake account. Loading homework...`
-                );
-
-        const loginSuccessContainer =
-            new ContainerBuilder()
-                .setAccentColor(
-                    0x90ee90
+        const loginSuccessEmbed =
+            new EmbedBuilder()
+                .setColor(0x90ee90)
+                .setTitle(
+                    '✅ Login Successful'
                 )
-                .addTextDisplayComponents(
-                    loginSuccessSection.data
+                .setDescription(
+                    'Successfully logged into your Educake account. Loading homework...'
                 );
 
         await interaction.editReply({
-            flags: 32768 | 64,
-            components: [
-                loginSuccessContainer
-            ]
+            embeds: [
+                loginSuccessEmbed
+            ],
+            components: []
         });
 
         // --------------------------------------------------
@@ -1917,34 +1879,25 @@ Successfully logged into your Educake account. Loading homework...`
             console.log(
                 '[Educake] Homework menu loaded.'
             );
-
         } catch (error) {
             console.error(
                 '[Educake] Homework loading failed:',
                 error
             );
 
-            const section =
-                new TextDisplayBuilder()
-                    .setContent(
-                        `### ❌ Homework Loading Failed
-Your Educake login worked, but I couldn't retrieve your homework.`
-                    );
-
-            const container =
-                new ContainerBuilder()
-                    .setAccentColor(
-                        0xff474d
+            const embed =
+                new EmbedBuilder()
+                    .setColor(0xff474d)
+                    .setTitle(
+                        '❌ Homework Loading Failed'
                     )
-                    .addTextDisplayComponents(
-                        section.data
+                    .setDescription(
+                        "Your Educake login worked, but I couldn't retrieve your homework."
                     );
 
             await interaction.editReply({
-                flags: 32768 | 64,
-                components: [
-                    container
-                ]
+                embeds: [embed],
+                components: []
             });
         }
 
@@ -2021,7 +1974,7 @@ Your Educake login worked, but I couldn't retrieve your homework.`
 
 
 // ==========================================================
-// EDUCAKE COLLECTOR
+// EDUCAKE LOGIN COLLECTOR
 // ==========================================================
 
 async function educake_collector(
@@ -2049,6 +2002,10 @@ async function educake_collector(
                     return;
                 }
 
+                // ------------------------------------------
+                // LOGIN BUTTON
+                // ------------------------------------------
+
                 const loginBtn =
                     new ButtonBuilder()
                         .setCustomId(
@@ -2068,40 +2025,41 @@ async function educake_collector(
                             loginBtn
                         );
 
-                const section =
-                    new TextDisplayBuilder()
-                        .setContent(
-                            `### Educake Login
-Login by simply inputting your username and password!`
-                        );
-
-                const container =
-                    new ContainerBuilder()
-                        .setAccentColor(
+                const loginEmbed =
+                    new EmbedBuilder()
+                        .setColor(
                             EMBED_COLOR
                         )
-                        .addTextDisplayComponents(
-                            section.data
+                        .setTitle(
+                            'Educake Login'
                         )
-                        .addSeparatorComponents(
-                            seperator
-                        )
-                        .addActionRowComponents(
-                            row
+                        .setDescription(
+                            'Login by simply inputting your username and password!'
                         );
 
                 const message =
                     await interaction.reply({
-                        flags:
-                            32768 | 64,
+                        ephemeral: true,
+                        embeds: [
+                            loginEmbed
+                        ],
                         components: [
-                            container
+                            row
                         ],
                         withResponse: true
                     });
 
-                const responseMessage =
-                    message.resource?.message;
+                // ------------------------------------------
+                // GET RESPONSE MESSAGE
+                // ------------------------------------------
+
+                let responseMessage =
+                    message?.resource?.message;
+
+                if (!responseMessage) {
+                    responseMessage =
+                        await interaction.fetchReply();
+                }
 
                 if (!responseMessage) {
                     console.error(
@@ -2109,6 +2067,10 @@ Login by simply inputting your username and password!`
                     );
                     return;
                 }
+
+                // ------------------------------------------
+                // LOGIN BUTTON COLLECTOR
+                // ------------------------------------------
 
                 const innerCollector =
                     responseMessage.createMessageComponentCollector(
@@ -2128,6 +2090,10 @@ Login by simply inputting your username and password!`
                             ) {
                                 return;
                             }
+
+                            // ------------------------------
+                            // LOGIN MODAL
+                            // ------------------------------
 
                             const modal =
                                 new ModalBuilder()
@@ -2168,6 +2134,10 @@ Login by simply inputting your username and password!`
                                         true
                                     );
 
+                            // ------------------------------
+                            // LOGIN TYPE DROPDOWN
+                            // ------------------------------
+
                             const typeInput =
                                 new StringSelectMenuBuilder()
                                     .setCustomId(
@@ -2176,6 +2146,8 @@ Login by simply inputting your username and password!`
                                     .setPlaceholder(
                                         'Select login type'
                                     )
+                                    .setMinValues(1)
+                                    .setMaxValues(1)
                                     .addOptions(
                                         {
                                             label:
@@ -2202,6 +2174,14 @@ Login by simply inputting your username and password!`
                                                 '🔵'
                                         }
                                     );
+
+                            /*
+                             * LabelBuilder is intentionally kept here.
+                             *
+                             * It is being used for the MODAL's
+                             * login-type field, not for a message
+                             * Components V2 container.
+                             */
 
                             const typeLabel =
                                 new LabelBuilder({
@@ -2267,6 +2247,10 @@ Login by simply inputting your username and password!`
     );
 }
 
+
+// ==========================================================
+// EXPORTS
+// ==========================================================
 
 module.exports = {
     educake_collector,
