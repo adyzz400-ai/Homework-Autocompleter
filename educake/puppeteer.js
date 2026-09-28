@@ -241,11 +241,24 @@ async function educakeLogin(
                 '[Educake] Waiting for login to complete...'
             );
 
-            await delay(3000);
+           await delay(3000);
 
-            console.log(
-                '[Educake] Login request has had time to complete.'
-            );
+const loginPageInfo = await page.evaluate(() => {
+    return {
+        url: window.location.href,
+        text: (document.body.innerText || '').slice(0, 3000)
+    };
+});
+
+console.log(
+    '[Educake] URL after login:',
+    loginPageInfo.url
+);
+
+console.log(
+    '[Educake] Page text after login:',
+    loginPageInfo.text
+);
 
             console.log(
                 '[Educake] Current URL after login:',
