@@ -68,10 +68,29 @@ async function getAIanswer(
             );
 
         } catch (error) {
-            console.error(
-                `[AI] Attempt ${attempts} failed:`,
-                error?.message || error
-            );
+    console.error(
+        `[AI] Attempt ${attempts} failed`
+    );
+
+    console.error(
+        '[AI] Error name:',
+        error?.name
+    );
+
+    console.error(
+        '[AI] Error message:',
+        error?.message
+    );
+
+    console.error(
+        '[AI] Error stack:',
+        error?.stack
+    );
+
+    console.error(
+        '[AI] Full error:',
+        error
+    );
 
             if (
                 attempts >= maxAttempts
