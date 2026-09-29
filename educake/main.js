@@ -135,14 +135,8 @@ async function educake_autocompleter(
         value: 'Waiting...'
     });
 
-    if (currentGroup.length === 5) {
-        sectionsProgress.push(
-            currentGroup
-        );
-
-        currentGroup = [];
-    }
-}
+    if (
+    const rawResult =
 
 if (currentGroup.length > 0) {
     sectionsProgress.push(
@@ -440,8 +434,7 @@ if (currentGroup.length > 0) {
                     }
                 );
 
-            if (
-                const rawResult =
+            const rawResult =
     questionResult?.answer?.result;
 
 console.log(
@@ -459,9 +452,7 @@ const isCorrect =
             'correct',
             'right'
         ].includes(
-            rawResult
-                .trim()
-                .toLowerCase()
+            rawResult.trim().toLowerCase()
         )
     );
 
@@ -478,8 +469,7 @@ if (isCorrect) {
         await addToDbEducake(
             questionId,
             givenAnswer,
-            aiModel ===
-                '2.5-pro'
+            aiModel === '2.5-pro'
         );
     }
 } else if (
@@ -492,24 +482,9 @@ if (isCorrect) {
     await addToDbEducake(
         questionId,
         null,
-        aiModel ===
-            '2.5-pro'
+        aiModel === '2.5-pro'
     );
-} else if (
-                [
-                    false,
-                    true,
-                    null
-                ].includes(DBanswer)
-            ) {
-                await addToDbEducake(
-                    questionId,
-                    null,
-                    aiModel ===
-                        '2.5-pro'
-                );
-            }
-        }
+}
 
         await progressUpdater
             .updateProgressBar(
