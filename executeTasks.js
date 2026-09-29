@@ -168,14 +168,20 @@ async function executeTasks(interaction) {
 			if (isReaderLogin) {
 				embedColor = 0x4467C4; // Sparx Reader purple
 			} else if (isMathsLogin) {
-				embedColor = 0x0099FF; // Sparx Maths blue
+    embedColor = 0xE53935; // Sparx Maths red
 			} else if (isScienceLogin) {
 				embedColor = 0x1d9b8f; // Sparx Science green
 			} else {
 				embedColor = 0x7d7d7d; // Noun Changer grey
 			}
 
-			const Loadingsection = new TextDisplayBuilder().setContent(`### Logging In... :hourglass:\nAttempting to log in to your account...`);
+			const Loadingsection = new TextDisplayBuilder().setContent(
+`# 🔐 Trying to log you in...
+
+⏳ **Attempting to connect to your Sparx Maths account.**
+
+Please wait while your school, login method and session are checked.`
+);
 
 			const Loadingcontainer = new ContainerBuilder()
 				.setAccentColor(embedColor)
