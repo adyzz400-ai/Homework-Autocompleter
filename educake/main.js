@@ -1350,6 +1350,8 @@ try {
     );
 }
 
+                        }
+
                         else if (
                             customId ===
                             'past_quizzes'
