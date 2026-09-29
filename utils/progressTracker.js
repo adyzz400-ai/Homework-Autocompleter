@@ -11,11 +11,8 @@ class progressTracker {
         interaction,
         getTimeField
     ) {
-        this.interaction =
-            interaction;
-
-        this.user =
-            interaction.user;
+        this.interaction = interaction;
+        this.user = interaction.user;
 
         this.targetMessage = null;
         this.embed = null;
@@ -34,10 +31,108 @@ class progressTracker {
     getTimeEmbed() {
         return {
             name: '\u200B',
-            value:
-                this.getTimeField(),
+            value: this.getTimeField(),
             inline: false
         };
+    }
+
+    getTotalPages() {
+        return Math.max(
+            1,
+            Math.ceil(
+                this.sectionsProgress.length / 5
+            )
+        );
+    }
+
+    getSectionText() {
+        const totalPages =
+            this.getTotalPages();
+
+        const start =
+            (this.currentPage - 1) * 5;
+
+        const pageSections =
+            this.sectionsProgress.slice(
+                start,
+                start + 5
+            );
+
+        if (!pageSections.length) {
+            return 'No sections available.';
+        }
+
+        return pageSections
+            .map((section, index) => {
+                const current =
+                    Number(section.current) || 0;
+
+                const total =
+                    Number(section.total) || 1;
+
+                const percentage =
+                    Math.round(
+                        Math.max(
+                            0,
+                            Math.min(
+                                1,
+                                current / total
+                            )
+                        ) * 100
+                    );
+
+                return (
+                    `**${start + index + 1}. ${section.name}** — ${percentage}%`
+                );
+            })
+            .join('\n');
+    }
+
+    updatePageButtons() {
+        if (!this.row) {
+            return;
+        }
+
+        const totalPages =
+            this.getTotalPages();
+
+        for (
+            const component
+            of this.row.components
+        ) {
+            const customId =
+                component.data?.custom_id;
+
+            if (customId === 'sparx_progress_prev') {
+                component.setDisabled(
+                    this.currentPage <= 1
+                );
+            }
+
+            if (customId === 'sparx_progress_next') {
+                component.setDisabled(
+                    this.currentPage >= totalPages
+                );
+            }
+        }
+    }
+
+    async changePage(direction) {
+        const totalPages =
+            this.getTotalPages();
+
+        this.currentPage =
+            Math.max(
+                1,
+                Math.min(
+                    totalPages,
+                    this.currentPage + direction
+                )
+            );
+
+        this.updatePageButtons();
+
+        await this.editMessage();
     }
 
     async buildProgressAttachment() {
@@ -50,8 +145,7 @@ class progressTracker {
         return new AttachmentBuilder(
             buffer,
             {
-                name:
-                    'progress-bar.png'
+                name: 'progress-bar.png'
             }
         );
     }
@@ -80,9 +174,7 @@ class progressTracker {
             const component
             of this.row.components
         ) {
-            component.setDisabled(
-                true
-            );
+            component.setDisabled(true);
         }
 
         await this.targetMessage.edit({
@@ -91,16 +183,23 @@ class progressTracker {
         });
     }
 
-    async updateEmbed(
-        description
-    ) {
+    async updateEmbed(description) {
+        const totalPages =
+            this.getTotalPages();
+
         this.embed.setDescription(
-            `**${description}**`
+`**${description}**
+
+### 📚 Sections — Page ${this.currentPage}/${totalPages}
+
+${this.getSectionText()}`
         );
 
         this.embed.setFields(
             this.getTimeEmbed()
         );
+
+        this.updatePageButtons();
 
         await this.editMessage();
     }
@@ -122,13 +221,15 @@ class progressTracker {
         this.embed.setFields(
             {
                 name:
-                    `Quiz ${quizNumber}`,
+                    `📝 Section ${quizNumber}`,
                 value:
                     `Question **${newProg} / ${progMax}**`,
                 inline: false
             },
             this.getTimeEmbed()
         );
+
+        this.updatePageButtons();
 
         await this.editMessage();
     }
@@ -197,23 +298,35 @@ class progressTracker {
         this.embed =
             initialEmbed;
 
-        this.row = row;
+        this.row =
+            row;
 
         this.sectionsProgress =
             sectionsProgress;
 
+        this.currentPage = 1;
         this.currentProgress = 0;
         this.progressMax = 1;
 
+        this.embed.setDescription(
+`🪄 **Preparing your Sparx Maths session...**
+
+### 📚 Sections — Page 1/${this.getTotalPages()}
+
+${this.getSectionText()}`
+        );
+
         this.embed.setFields(
             {
-                name: 'Progress',
+                name: '📊 Progress',
                 value:
                     'Starting autocompleter...',
                 inline: false
             },
             this.getTimeEmbed()
         );
+
+        this.updatePageButtons();
 
         try {
             const attachment =
