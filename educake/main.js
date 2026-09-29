@@ -126,27 +126,37 @@ async function educake_autocompleter(
         });
     }
 
+    // ======================================================
+    // PROGRESS SECTIONS
+    // ======================================================
+
     const sectionsProgress = [];
     let currentGroup = [];
 
     for (const qId of selectedQuizzes) {
-    currentGroup.push({
-        name: `Quiz ${qId}`,
-        value: 'Waiting...'
-    });
+        currentGroup.push({
+            name: `Quiz ${qId}`,
+            value: 'Waiting...'
+        });
 
-    if (
-    const rawResult =
+        if (currentGroup.length === 5) {
+            sectionsProgress.push(
+                currentGroup
+            );
 
-if (currentGroup.length > 0) {
-    sectionsProgress.push(
-        currentGroup
-    );
-}
+            currentGroup = [];
+        }
+    }
 
     if (currentGroup.length > 0) {
-        sectionsProgress.push(currentGroup);
+        sectionsProgress.push(
+            currentGroup
+        );
     }
+
+    // ======================================================
+    // TRACKING
+    // ======================================================
 
     let totalCorrectCount = 0;
     let totalQuestionsCount = 0;
@@ -157,9 +167,10 @@ if (currentGroup.length > 0) {
         return `> **Accuracy**: ${
             totalQuestionsCount
                 ? Math.round(
-                      (totalCorrectCount /
-                          totalQuestionsCount) *
-                          100
+                      (
+                          totalCorrectCount /
+                          totalQuestionsCount
+                      ) * 100
                   )
                 : 0
         }%\n> **Time Spent**: ${formatTime(
@@ -182,6 +193,10 @@ if (currentGroup.length > 0) {
     ) {
         return;
     }
+
+    // ======================================================
+    // CANCEL BUTTON
+    // ======================================================
 
     let cancelled = false;
 
@@ -210,6 +225,10 @@ if (currentGroup.length > 0) {
         }
     );
 
+    // ======================================================
+    // PROCESS QUIZZES
+    // ======================================================
+
     for (
         let quizIdx = 0;
         quizIdx < selectedQuizzes.length;
@@ -221,6 +240,10 @@ if (currentGroup.length > 0) {
 
         let quizId =
             selectedQuizzes[quizIdx];
+
+        // ==================================================
+        // GET QUIZ
+        // ==================================================
 
         const quizAnswers =
             await userSession.sendRequest(
@@ -249,7 +272,8 @@ if (currentGroup.length > 0) {
             );
         }
 
-        quizId = attemptIds[0].id;
+        quizId =
+            attemptIds[0].id;
 
         const attempt =
             quizAnswers.attempt[quizId];
@@ -260,6 +284,10 @@ if (currentGroup.length > 0) {
             );
         }
 
+        // ==================================================
+        // QUIZ INSIGHTS
+        // ==================================================
+
         const assessmentId =
             attempt.assessmentId;
 
@@ -268,15 +296,25 @@ if (currentGroup.length > 0) {
             {
                 assessmentId:
                     Number(assessmentId),
+
                 attemptId:
                     Number(quizId),
+
                 questionId: 0,
+
                 phase: 'start',
+
                 active: 0,
+
                 passive: 0,
+
                 offScreen: 0
             }
         );
+
+        // ==================================================
+        // QUESTIONS
+        // ==================================================
 
         const questionMap =
             attempt.questionMap;
@@ -292,6 +330,10 @@ if (currentGroup.length > 0) {
         totalQuestionsCount +=
             unansweredQuestions.length;
 
+        // ==================================================
+        // PROCESS QUESTIONS
+        // ==================================================
+
         for (
             const [
                 index,
@@ -304,6 +346,10 @@ if (currentGroup.length > 0) {
 
             const question =
                 questionMap[questionId];
+
+            // ==============================================
+            // TIME SIMULATION
+            // ==============================================
 
             const waitTime =
                 Math.floor(
@@ -321,6 +367,7 @@ if (currentGroup.length > 0) {
 
             if (waitTime) {
                 const interval = 3000;
+
                 let elapsed = 0;
 
                 await progressUpdater.updateEmbed(
@@ -357,16 +404,21 @@ if (currentGroup.length > 0) {
                             )
                     );
 
-                    elapsed += Math.min(
-                        interval,
-                        timeLeft
-                    );
+                    elapsed +=
+                        Math.min(
+                            interval,
+                            timeLeft
+                        );
                 }
 
                 if (cancelled) {
                     break;
                 }
             }
+
+            // ==============================================
+            // UPDATE PROGRESS
+            // ==============================================
 
             await progressUpdater
                 .updateProgressBar(
@@ -388,6 +440,10 @@ if (currentGroup.length > 0) {
                 }`
             );
 
+            // ==============================================
+            // CHECK DATABASE ANSWER
+            // ==============================================
+
             let DBanswer =
                 await checkAnswer(
                     questionId
@@ -399,14 +455,26 @@ if (currentGroup.length > 0) {
             let givenAnswer = null;
 
             if (DBanswer === false) {
-                aiModel = '2.5-pro';
-            } else if (DBanswer === true) {
+                aiModel =
+                    '2.5-pro';
+            } else if (
+                DBanswer === true
+            ) {
                 givenAnswer = false;
-            } else if (DBanswer !== null) {
-                givenAnswer = DBanswer;
+            } else if (
+                DBanswer !== null
+            ) {
+                givenAnswer =
+                    DBanswer;
             }
 
-            if (givenAnswer === null) {
+            // ==============================================
+            // AI ANSWER
+            // ==============================================
+
+            if (
+                givenAnswer === null
+            ) {
                 givenAnswer =
                     await getAIanswer(
                         () =>
@@ -416,15 +484,21 @@ if (currentGroup.length > 0) {
                             ),
                         {
                             stillUsing:
-                                async () => true
+                                async () =>
+                                    true
                         },
                         interaction,
                         progressUpdater,
                         60000,
                         3000,
-                        () => cancelled
+                        () =>
+                            cancelled
                     );
             }
+
+            // ==============================================
+            // SUBMIT ANSWER
+            // ==============================================
 
             const questionResult =
                 await userSession.sendRequest(
@@ -434,57 +508,75 @@ if (currentGroup.length > 0) {
                     }
                 );
 
+            // ==============================================
+            // CHECK RESULT
+            // ==============================================
+
             const rawResult =
-    questionResult?.answer?.result;
+                questionResult?.answer?.result;
 
-console.log(
-    '[Educake] Answer result:',
-    rawResult
-);
+            console.log(
+                '[Educake] Answer result:',
+                rawResult
+            );
 
-const isCorrect =
-    rawResult === true ||
-    rawResult === 1 ||
-    (
-        typeof rawResult === 'string' &&
-        [
-            'true',
-            'correct',
-            'right'
-        ].includes(
-            rawResult.trim().toLowerCase()
-        )
-    );
+            const isCorrect =
+                rawResult === true ||
+                rawResult === 1 ||
+                (
+                    typeof rawResult ===
+                        'string' &&
+                    [
+                        'true',
+                        'correct',
+                        'right'
+                    ].includes(
+                        rawResult
+                            .trim()
+                            .toLowerCase()
+                    )
+                );
 
-if (isCorrect) {
-    totalCorrectCount++;
+            // ==============================================
+            // UPDATE ACCURACY
+            // ==============================================
 
-    if (
-        [
-            false,
-            true,
-            null
-        ].includes(DBanswer)
-    ) {
-        await addToDbEducake(
-            questionId,
-            givenAnswer,
-            aiModel === '2.5-pro'
-        );
-    }
-} else if (
-    [
-        false,
-        true,
-        null
-    ].includes(DBanswer)
-) {
-    await addToDbEducake(
-        questionId,
-        null,
-        aiModel === '2.5-pro'
-    );
-}
+            if (isCorrect) {
+                totalCorrectCount++;
+
+                if (
+                    [
+                        false,
+                        true,
+                        null
+                    ].includes(DBanswer)
+                ) {
+                    await addToDbEducake(
+                        questionId,
+                        givenAnswer,
+                        aiModel ===
+                            '2.5-pro'
+                    );
+                }
+            } else if (
+                [
+                    false,
+                    true,
+                    null
+                ].includes(DBanswer)
+            ) {
+                await addToDbEducake(
+                    questionId,
+                    null,
+                    aiModel ===
+                        '2.5-pro'
+                );
+            }
+        }
+
+        // ==================================================
+        // QUIZ COMPLETE
+        // ==================================================
 
         await progressUpdater
             .updateProgressBar(
@@ -494,6 +586,10 @@ if (isCorrect) {
                     1
             );
     }
+
+    // ======================================================
+    // FINISHED
+    // ======================================================
 
     await progressUpdater.updateEmbed(
         'Finished'
