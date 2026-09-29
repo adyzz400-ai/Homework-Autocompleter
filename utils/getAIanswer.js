@@ -1,3 +1,27 @@
+async function runWithTimeout(
+    actionFn,
+    timeoutMs
+) {
+    return Promise.race([
+        actionFn(),
+
+        new Promise(
+            (_, reject) => {
+                setTimeout(
+                    () => {
+                        reject(
+                            new Error(
+                                `AI request timed out after ${timeoutMs}ms`
+                            )
+                        );
+                    },
+                    timeoutMs
+                );
+            }
+        )
+    ]);
+}
+
 async function getAIanswer(
     actionFn,
     queue,
@@ -7,30 +31,90 @@ async function getAIanswer(
     checkIntervalMs = 3000,
     cancelFlag = () => false
 ) {
-    let result = await actionFn();
     let attempts = 0;
 
-    while (typeof result === 'number') { // Retry for any numeric error code
+    while (!cancelFlag()) {
         attempts++;
-        await progressUpdater.updateEmbed(
-            `The AI model returned an error code (${result}). Waiting for 60 seconds before retrying (Attempt ${attempts})...`
-        );
+
+        try {
+            await progressUpdater.updateEmbed(
+                'AI is solving the question...'
+            );
+
+            const result =
+                await runWithTimeout(
+                    actionFn,
+                    60000
+                );
+
+            if (
+                typeof result !==
+                'number'
+            ) {
+                return result;
+            }
+
+            await progressUpdater.updateEmbed(
+                `AI returned error ${result}. Retrying...`
+            );
+
+        } catch (error) {
+            console.error(
+                '[AI] Request failed:',
+                error.message
+            );
+
+            await progressUpdater.updateEmbed(
+                'AI request timed out or failed. Retrying...'
+            );
+        }
 
         let elapsed = 0;
-        while (elapsed < maxWaitMs && !cancelFlag() && (await queue.stillUsing(interaction.user.id))) {
-            const timeLeft = maxWaitMs - elapsed;
-            await new Promise(res => setTimeout(res, Math.min(checkIntervalMs, timeLeft)));
-            elapsed += Math.min(checkIntervalMs, timeLeft);
+
+        while (
+            elapsed < maxWaitMs &&
+            !cancelFlag() &&
+            (
+                await queue.stillUsing(
+                    interaction.user.id
+                )
+            )
+        ) {
+            const timeLeft =
+                maxWaitMs -
+                elapsed;
+
+            const wait =
+                Math.min(
+                    checkIntervalMs,
+                    timeLeft
+                );
+
+            await new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        wait
+                    )
+            );
+
+            elapsed += wait;
         }
 
-        if (cancelFlag() || !(await queue.stillUsing(interaction.user.id))) {
+        if (
+            cancelFlag() ||
+            !(
+                await queue.stillUsing(
+                    interaction.user.id
+                )
+            )
+        ) {
             return 'break';
         }
-
-        result = await actionFn();
     }
 
-    return result;
+    return 'break';
 }
 
-module.exports = getAIanswer;
+module.exports =
+    getAIanswer;
