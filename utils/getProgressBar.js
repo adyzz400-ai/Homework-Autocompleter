@@ -1,26 +1,97 @@
-const { emojis } = require('../config.json');
+const sharp = require('sharp');
+const path = require('path');
 
-function getProgressBar(totalCorrect, total) {
+const PROGRESS_DIR = path.join(
+    __dirname,
+    '..',
+    'emojis',
+    'progress_bar'
+);
 
-    let greenBarsNum = Math.round((totalCorrect / total) * 10);
-    if (greenBarsNum > 10) greenBarsNum = 10;
+const BAR_HEIGHT = 48;
+const BAR_WIDTH = 48;
 
-    let progressBar = "";
+async function loadPart(name) {
+    return sharp(
+        path.join(
+            PROGRESS_DIR,
+            `${name}.png`
+        )
+    )
+        .resize(BAR_WIDTH, BAR_HEIGHT)
+        .png()
+        .toBuffer();
+}
+
+async function getProgressBar(
+    current,
+    total
+) {
+    current = Number(current) || 0;
+    total = Number(total) || 1;
+
+    const progress = Math.max(
+        0,
+        Math.min(1, current / total)
+    );
+
+    const filled = Math.round(
+        progress * 10
+    );
+
+    const parts = [];
 
     for (let i = 0; i < 10; i++) {
+        let name;
+
         if (i === 0) {
-            // left edge
-            progressBar += (greenBarsNum > 0) ? emojis.left_full : emojis.left_empty;
+            name =
+                filled > 0
+                    ? 'left_full'
+                    : 'left_empty';
         } else if (i === 9) {
-            // right edge
-            progressBar += (greenBarsNum > 9) ? emojis.right_full : emojis.right_empty;
+            name =
+                filled >= 10
+                    ? 'right_full'
+                    : 'right_empty';
         } else {
-            // middle
-            progressBar += (i < greenBarsNum) ? emojis.mid_full : emojis.mid_empty;
+            name =
+                i < filled
+                    ? 'mid_full'
+                    : 'mid_empty';
         }
+
+        parts.push(
+            await loadPart(name)
+        );
     }
 
-    return progressBar;
+    return sharp({
+        create: {
+            width: BAR_WIDTH * 10,
+            height: BAR_HEIGHT,
+            channels: 4,
+            background: {
+                r: 0,
+                g: 0,
+                b: 0,
+                alpha: 0
+            }
+        }
+    })
+        .composite(
+            parts.map(
+                (input, index) => ({
+                    input,
+                    left:
+                        index *
+                        BAR_WIDTH,
+                    top: 0
+                })
+            )
+        )
+        .png()
+        .toBuffer();
 }
 
 module.exports = getProgressBar;
