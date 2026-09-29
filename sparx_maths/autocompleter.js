@@ -408,11 +408,24 @@ if (task.title.endsWith('Times Tables')) {
         collector.on('collect', async (interaction) => {
             await interaction.deferUpdate();
             if (interaction.customId === 'cancel') {
-                cancelled = true;
+    cancelled = true;
 
-                await progressUpdater.updateEmbed(`Cancelling...`);
-            }
-        });
+    await progressUpdater.updateEmbed(
+        `🛑 Cancelling...`
+    );
+
+    return;
+}
+
+if (interaction.customId === 'sparx_progress_prev') {
+    await progressUpdater.changePage(-1);
+    return;
+}
+
+if (interaction.customId === 'sparx_progress_next') {
+    await progressUpdater.changePage(1);
+    return;
+}
 
         for (const task of tasks.tasks) {
 
