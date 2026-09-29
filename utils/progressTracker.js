@@ -1,119 +1,272 @@
-const { EmbedBuilder } = require('discord.js');
-const getProgressBar = require('./getProgressBar');
+const {
+    EmbedBuilder,
+    AttachmentBuilder
+} = require('discord.js');
+
+const getProgressBar =
+    require('./getProgressBar');
 
 class progressTracker {
-    constructor(interaction, getTimeField) {
-        this.interaction = interaction;
-        this.user = interaction.user;
-        this.targetMessage;
-        this.embed;
-        this.totalSeconds = 0;
-        this.taskTimer = process.hrtime();
-        this.row;
-        this.sectionsProgress;
-        this.currentPage = 1;
-        this.getTimeField = getTimeField.bind(this); // <-- IMPORTANT
-    }
+    constructor(
+        interaction,
+        getTimeField
+    ) {
+        this.interaction =
+            interaction;
 
-    async end() {
-        for (const component of this.row.components) {
-            component.setDisabled(true);
-        }
-        await this.targetMessage.edit({
-            components: [this.row]
-        });
+        this.user =
+            interaction.user;
+
+        this.targetMessage = null;
+        this.embed = null;
+        this.row = null;
+
+        this.sectionsProgress = [];
+        this.currentPage = 1;
+
+        this.currentProgress = 0;
+        this.progressMax = 1;
+
+        this.getTimeField =
+            getTimeField.bind(this);
     }
 
     getTimeEmbed() {
         return {
             name: '\u200B',
-            value: this.getTimeField()
+            value:
+                this.getTimeField(),
+            inline: false
         };
     }
 
-    async wait(time, message, notcancelFlag) {
-        const waitTime = Math.floor(Math.random() * (time.max - time.min + 1)) + time.min;
-        const waitTimeMs = waitTime * 1000;
+    async buildProgressAttachment() {
+        const buffer =
+            await getProgressBar(
+                this.currentProgress,
+                this.progressMax
+            );
 
-        if (waitTime) {
-            const interval = 3000; // check every 3 seconds
-            let elapsed = 0;
-
-            await this.updateEmbed(`${message} \`<t:${Math.floor(Date.now() / 1000) + waitTime}:R>...`);
-
-            while (elapsed < waitTimeMs && notcancelFlag()) {
-                const timeLeft = waitTimeMs - elapsed;
-                await new Promise(res => setTimeout(res, Math.min(interval, timeLeft)));
-                elapsed += Math.min(interval, timeLeft);
+        return new AttachmentBuilder(
+            buffer,
+            {
+                name:
+                    'progress-bar.png'
             }
-        }
+        );
     }
 
-    async updateTime() {
-        this.embed.data.fields[this.embed.data.fields.length - 1] = (this.getTimeEmbed());
-    }
+    async editMessage() {
+        const attachment =
+            await this.buildProgressAttachment();
 
-    async updateEmbed(description) {
-        this.embed.data.description = `\`${description}\`${this.sectionsProgress.length > 1 ? `\n*Page ${this.currentPage} of ${this.sectionsProgress.length}*` : ''}`;
-
-        await this.updateTime();
+        this.embed.setImage(
+            'attachment://progress-bar.png'
+        );
 
         await this.targetMessage.edit({
-            embeds: [this.embed]
+            embeds: [this.embed],
+            components: [this.row],
+            files: [attachment]
         });
     }
 
-    async updateProgressBar(index, newProg, progMax=1) {
-        this.embed.data.fields = [];
-        const progressBar = getProgressBar(newProg, progMax);
-        const adjustedIndex = Math.floor(index / 5);
-        this.currentPage = adjustedIndex + 1;
-        for (const section of this.sectionsProgress[adjustedIndex]) {
-            this.embed.addFields(section);
+    async end() {
+        if (!this.row) {
+            return;
         }
-        this.embed.addFields(this.getTimeEmbed());
 
-        this.embed.data.fields[index % 5].value = progressBar;
-
-        await this.updateTime();
+        for (
+            const component
+            of this.row.components
+        ) {
+            component.setDisabled(
+                true
+            );
+        }
 
         await this.targetMessage.edit({
-            embeds: [this.embed]
+            embeds: [this.embed],
+            components: [this.row]
         });
     }
 
-    async start(initialEmbed, row, sectionsProgress) {
-        for (const section of sectionsProgress[0]) {
-            initialEmbed.addFields(section);
+    async updateEmbed(
+        description
+    ) {
+        this.embed.setDescription(
+            `**${description}**`
+        );
+
+        this.embed.setFields(
+            this.getTimeEmbed()
+        );
+
+        await this.editMessage();
+    }
+
+    async updateProgressBar(
+        index,
+        newProg,
+        progMax = 1
+    ) {
+        this.currentProgress =
+            newProg;
+
+        this.progressMax =
+            progMax;
+
+        const quizNumber =
+            index + 1;
+
+        this.embed.setFields(
+            {
+                name:
+                    `Quiz ${quizNumber}`,
+                value:
+                    `Question **${newProg} / ${progMax}**`,
+                inline: false
+            },
+            this.getTimeEmbed()
+        );
+
+        await this.editMessage();
+    }
+
+    async wait(
+        time,
+        message,
+        notcancelFlag
+    ) {
+        const waitTime =
+            Math.floor(
+                Math.random() *
+                (
+                    time.max -
+                    time.min +
+                    1
+                )
+            ) +
+            time.min;
+
+        const waitTimeMs =
+            waitTime * 1000;
+
+        if (!waitTime) {
+            return;
         }
-        initialEmbed.addFields(this.getTimeEmbed());
+
+        const interval = 3000;
+        let elapsed = 0;
+
+        await this.updateEmbed(
+            `${message} — waiting ${waitTime}s`
+        );
+
+        while (
+            elapsed < waitTimeMs &&
+            notcancelFlag()
+        ) {
+            const timeLeft =
+                waitTimeMs -
+                elapsed;
+
+            const sleep =
+                Math.min(
+                    interval,
+                    timeLeft
+                );
+
+            await new Promise(
+                resolve =>
+                    setTimeout(
+                        resolve,
+                        sleep
+                    )
+            );
+
+            elapsed += sleep;
+        }
+    }
+
+    async start(
+        initialEmbed,
+        row,
+        sectionsProgress
+    ) {
+        this.embed =
+            initialEmbed;
+
+        this.row = row;
+
+        this.sectionsProgress =
+            sectionsProgress;
+
+        this.currentProgress = 0;
+        this.progressMax = 1;
+
+        this.embed.setFields(
+            {
+                name: 'Progress',
+                value:
+                    'Starting autocompleter...',
+                inline: false
+            },
+            this.getTimeEmbed()
+        );
 
         try {
-            this.embed = initialEmbed;
-            this.row = row;
-            this.sectionsProgress = sectionsProgress;
-            this.targetMessage = await this.user.send({
-                embeds: [initialEmbed],
-                components: [row]
-            });
-        } catch {
-            const noDMenabled = new EmbedBuilder()
-                .setTitle('Cannot Direct Message')
-                .setDescription('The autocompleter is unable to direct message you the progress tracker because your discord settings prevent this. You have been kicked out of the queue and the autocompleter has cancelled your task.')
-                .addFields({
-                    name: 'How do I fix this issue?',
-                    value: 'Please go to `Settings -> Content & Social -> Social Permissions -> \'SparxNow\' -> Direct Messages ✅`'
-                })
-                .setColor(0xFF474D)
-                .setImage('https://i.postimg.cc/5NkYDpYD/Screenshot-2025-10-17-203707.png');
+            const attachment =
+                await this.buildProgressAttachment();
+
+            this.embed.setImage(
+                'attachment://progress-bar.png'
+            );
+
+            this.targetMessage =
+                await this.user.send({
+                    embeds: [
+                        this.embed
+                    ],
+                    components: [
+                        row
+                    ],
+                    files: [
+                        attachment
+                    ]
+                });
+
+        } catch (error) {
+            console.error(
+                '[ProgressTracker] DM error:',
+                error
+            );
+
+            const noDMenabled =
+                new EmbedBuilder()
+                    .setTitle(
+                        'Cannot Direct Message'
+                    )
+                    .setDescription(
+                        'The autocompleter could not send you the progress tracker because your Discord DMs are disabled.'
+                    )
+                    .setColor(
+                        0xFF474D
+                    );
 
             await this.interaction.followUp({
-                embeds: [noDMenabled],
+                embeds: [
+                    noDMenabled
+                ],
                 ephemeral: true
             });
+
             return true;
         }
+
+        return false;
     }
 }
 
-module.exports = progressTracker;
+module.exports =
+    progressTracker;
