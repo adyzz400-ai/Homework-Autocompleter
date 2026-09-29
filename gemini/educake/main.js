@@ -15,18 +15,36 @@ class geminiAnswers {
 
         // If image exists, include it
         if (questionObj.image) {
-            const responseImage = await fetch(questionObj.image);
-            const imageArrayBuffer = await responseImage.arrayBuffer();
-            const base64ImageData = Buffer.from(imageArrayBuffer).toString('base64');
+    const responseImage =
+        await fetch(questionObj.image);
 
-            contents.push({
-                inlineData: {
-                mimeType: 'image/jpeg',
-                data: base64ImageData,
-                altText: 'Question Image'
-                },
-            });
+    if (!responseImage.ok) {
+        throw new Error(
+            `Failed to download question image: HTTP ${responseImage.status}`
+        );
+    }
+
+    const imageArrayBuffer =
+        await responseImage.arrayBuffer();
+
+    const base64ImageData =
+        Buffer
+            .from(imageArrayBuffer)
+            .toString('base64');
+
+    const contentType =
+        responseImage.headers.get(
+            'content-type'
+        ) || 'image/jpeg';
+
+    contents.push({
+        inlineData: {
+            mimeType: contentType,
+            data: base64ImageData,
+            altText: 'Question Image'
         }
+    });
+}
 
         // Always include question text
         contents.push({ text: questionObj.question });
