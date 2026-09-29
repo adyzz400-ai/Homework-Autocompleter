@@ -489,11 +489,10 @@ async function educake_autocompleter(
                         },
                         interaction,
                         progressUpdater,
-                        60000,
-                        3000,
-                        () =>
-                            cancelled
-                    );
+30000,
+3000,
+() => cancelled
+);
             }
 
             // ==============================================
