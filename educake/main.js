@@ -449,8 +449,7 @@ async function educake_autocompleter(
                     questionId
                 );
 
-            let aiModel =
-                '2.5-flash-lite';
+            let aiModel = '3.5-flash-lite';
 
             let givenAnswer = null;
 
