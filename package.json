@@ -27,7 +27,8 @@
     "puppeteer": "^24.31.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "qs": "^6.14.0"
+    "qs": "^6.14.0",
+    "sharp": "^0.35.0"
   },
   "devDependencies": {
     "eslint": "^9.39.2"
