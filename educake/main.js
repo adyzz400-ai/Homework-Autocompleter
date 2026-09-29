@@ -64,7 +64,10 @@ const getAIanswer =
 
 const puppetQueue =
     require('../queues/puppeteerQueue.js');
-
+    
+const educakeQueue =
+    require('../queues/educakeQueue.js');
+    
 const config =
     require('../config.json');
 
@@ -1302,15 +1305,50 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
                                 return;
                             }
 
-                            await educake_autocompleter(
-                                componentInteraction,
-                                userSession,
-                                this.menuStage ===
-                                    'old',
-                                this.timeSettings,
-                                this.selectedQuizzes
-                            );
-                        }
+                            const queueJob =
+    educakeQueue.enqueue(
+        componentInteraction.user.id,
+        () =>
+            educake_autocompleter(
+                componentInteraction,
+                userSession,
+                this.menuStage ===
+                    'old',
+                this.timeSettings,
+                this.selectedQuizzes
+            )
+    );
+
+if (
+    !queueJob.duplicate &&
+    queueJob.status.position > 1
+) {
+    await componentInteraction.editReply({
+        embeds: [
+            new EmbedBuilder()
+                .setColor(EMBED_COLOR)
+                .setTitle('👥 Educake Queue')
+                .setDescription(
+                    `Your homework has been added to the queue.
+
+**Your position:** #${queueJob.status.position}
+**People in queue:** ${queueJob.status.total}
+
+You will automatically start when it is your turn.`
+                )
+        ],
+        components: []
+    });
+}
+
+try {
+    await queueJob.promise;
+} catch (error) {
+    console.error(
+        '[Educake] Queued homework error:',
+        error
+    );
+}
 
                         else if (
                             customId ===
@@ -2223,11 +2261,21 @@ async function educake_collector(
                         .setStyle(
                             ButtonStyle.Success
                         );
-
-                const row =
+                        const queueBtn =
+                            new ButtonBuilder()
+                                .setCustomId(
+                                    'educake_queue_status'
+                                )
+                                .setLabel('Queue')
+                                .setEmoji('👥')
+                                .setStyle(
+                                    ButtonStyle.Secondary
+                                );
+                                const row =
                     new ActionRowBuilder()
                         .addComponents(
-                            loginBtn
+                            loginBtn,
+                            queueBtn
                         );
 
                 const loginEmbed =
@@ -2282,11 +2330,56 @@ async function educake_collector(
                     async componentInteraction => {
                         try {
                             if (
-                                componentInteraction.customId !==
-                                'educake_login'
-                            ) {
-                                return;
-                            }
+    componentInteraction.customId ===
+    'educake_queue_status'
+) {
+    const status =
+        educakeQueue.getStatus(
+            componentInteraction.user.id
+        );
+
+    if (!status.inQueue) {
+        await componentInteraction.reply({
+            ephemeral: true,
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(EMBED_COLOR)
+                    .setTitle('👥 Queue')
+                    .setDescription(
+                        `You are not currently in the queue.
+
+**People in queue:** ${status.total}
+
+Start a homework session to automatically join the queue.`
+                    )
+            ]
+        });
+    } else {
+        await componentInteraction.reply({
+            ephemeral: true,
+            embeds: [
+                new EmbedBuilder()
+                    .setColor(EMBED_COLOR)
+                    .setTitle('👥 Queue')
+                    .setDescription(
+                        `You are currently in the queue.
+
+**Your position:** #${status.position}
+**People in queue:** ${status.total}`
+                    )
+            ]
+        });
+    }
+
+    return;
+}
+
+if (
+    componentInteraction.customId !==
+    'educake_login'
+) {
+    return;
+}
 
                             const modal =
                                 new ModalBuilder()
