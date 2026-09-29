@@ -300,19 +300,42 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
 
     const taskTimer = process.hrtime();
 
-    const cancel = new ButtonBuilder()
+    const previousPage =
+    new ButtonBuilder()
+        .setCustomId('sparx_progress_prev')
+        .setLabel('Previous')
+        .setEmoji('◀️')
+        .setStyle(ButtonStyle.Secondary);
+
+const nextPage =
+    new ButtonBuilder()
+        .setCustomId('sparx_progress_next')
+        .setLabel('Next')
+        .setEmoji('▶️')
+        .setStyle(ButtonStyle.Secondary);
+
+const cancel =
+    new ButtonBuilder()
         .setCustomId('cancel')
         .setLabel('Cancel')
         .setEmoji(emojis.x)
         .setStyle(ButtonStyle.Danger);
 
-    const row = new ActionRowBuilder()
-        .addComponents(cancel);
+const row =
+    new ActionRowBuilder()
+        .addComponents(
+            previousPage,
+            nextPage,
+            cancel
+        );
 
-    const initialEmbed = new EmbedBuilder()
-        .setColor(0x0099FF)
-        .setTitle('Sparx Maths Autocompleter')
-        .setDescription(`\`Starting Questions...\``);
+    const initialEmbed =
+    new EmbedBuilder()
+        .setColor(0xE53935)
+        .setTitle('✨ Sparx Maths — Progress')
+        .setDescription(
+            '🪄 Preparing your homework session...'
+        );
 
     // const packageID = interaction.values[0];
     const wantWorkingOut = fakeTime.pdfSettings.working_out;
@@ -325,13 +348,34 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
     let currentGroup = [];
     for (const task of tasks.tasks) {
         let progressEntry = {
-            name: task.title
-        };
-        if (task.title.endsWith('Times Tables')) {
-            progressEntry.value = await getProgressBar(task.completion.progress.C, task.completion.size);
-        } else {
-            progressEntry.value = await getProgressBar(task.numTaskItemsDone, task.numTaskItems);
-        }
+    name: task.title
+};
+
+if (task.title.endsWith('Times Tables')) {
+    progressEntry.current =
+        Number(task.completion.progress.C) || 0;
+
+    progressEntry.total =
+        Number(task.completion.size) || 1;
+
+    progressEntry.value =
+        await getProgressBar(
+            progressEntry.current,
+            progressEntry.total
+        );
+} else {
+    progressEntry.current =
+        Number(task.numTaskItemsDone) || 0;
+
+    progressEntry.total =
+        Number(task.numTaskItems) || 1;
+
+    progressEntry.value =
+        await getProgressBar(
+            progressEntry.current,
+            progressEntry.total
+        );
+}
 
         // Push into current group
         currentGroup.push(progressEntry);
@@ -373,8 +417,8 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
         for (const task of tasks.tasks) {
 
             if (cancelled) break;
-            await progressUpdater.updateEmbed(`Moving on to Task ${task.taskIndex}...`);
-            log.logToFile(`Moving on to Task ${task.taskIndex}...`);
+            await progressUpdater.updateEmbed(`📚 Moving on to ${task.title}...`);
+            log.logToFile(`📚 Moving on to ${task.title}...`);
 
             if (task.title.endsWith('Times Tables') && (task.completion.size > (task.completion?.progress?.C ?? 0))) {
                 log.logToFile('Timestable detected');
@@ -463,10 +507,10 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
                 if (cancelled) break;
 
                 await progressUpdater.updateEmbed(`Starting Question ${index} at Task ${task.taskIndex}...`);
-                log.logToFile(`Starting Question ${index} at Task ${task.taskIndex}...`);
+                log.logToFile(`📝 Starting Question ${index} at ${task.title}...`);
                 if (taskItems[index - 1].status === 1) {
                     await progressUpdater.updateEmbed(`Question ${index} at Task ${task.taskIndex} already finished, moving onto next question...`);
-                    log.logToFile(`Question ${index} at Task ${task.taskIndex} already finished, moving onto next question...`);
+                    log.logToFile(`✅ Question ${index} at ${task.title} is already finished, moving onto the next question...`);
                     index++;
                     continue;
                 }
@@ -552,15 +596,15 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
                     }
                     if (!questionSuccess && attempts < 3) {
                         if (attempts === 1) {
-                            if (await progressUpdater.updateEmbed(`Retrying Question ${index} at Task ${task.taskIndex}...`)) return 'break';
+                            if (await progressUpdater.updateEmbed(`🔄 Retrying Question ${index} at ${task.title}...`;
                         } else if (attempts === 2) {
-                            if (await progressUpdater.updateEmbed(`Retrying Question ${index} at Task ${task.taskIndex} Again...`)) return 'break';
+                            if (await progressUpdater.updateEmbed(`🔄 Retrying Question ${index} at ${task.title}...`)) return 'break';
                         }
                         return await attemptQuestion(attempts + 1);
                     }
                 }
 
-                await progressUpdater.updateEmbed(`Answering Question ${index} at Task ${task.taskIndex}...`);
+                await progressUpdater.updateEmbed(`📝 Answering Question ${index} at ${task.title}...`);
                 const attemptQuestionResponse = await attemptQuestion();
                 if (attemptQuestionResponse === 'break') {
                     break;
@@ -569,7 +613,7 @@ async function sparxMathsAutocomplete(interaction, packageID, sparxMaths, fakeTi
                 }
                 index++; // move to the next index
             }
-            await progressUpdater.updateEmbed(`Completed Section`);
+            await progressUpdater.updateEmbed(`✅ Completed ${task.title}`);
         }
     } catch (err) {
         log.logToFile(err);
