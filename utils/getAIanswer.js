@@ -2,24 +2,29 @@ async function runWithTimeout(
     actionFn,
     timeoutMs
 ) {
-    return Promise.race([
-        actionFn(),
+    let timeout;
 
-        new Promise(
-            (_, reject) => {
-                setTimeout(
-                    () => {
+    try {
+        return await Promise.race([
+            actionFn(),
+
+            new Promise(
+                (_, reject) => {
+                    timeout = setTimeout(() => {
                         reject(
                             new Error(
                                 `AI request timed out after ${timeoutMs}ms`
                             )
                         );
-                    },
-                    timeoutMs
-                );
-            }
-        )
-    ]);
+                    }, timeoutMs);
+                }
+            )
+        ]);
+    } finally {
+        if (timeout) {
+            clearTimeout(timeout);
+        }
+    }
 }
 
 async function getAIanswer(
@@ -27,29 +32,33 @@ async function getAIanswer(
     queue,
     interaction,
     progressUpdater,
-    maxWaitMs = 60000,
+    maxWaitMs = 30000,
     checkIntervalMs = 3000,
     cancelFlag = () => false
 ) {
     let attempts = 0;
 
-    while (!cancelFlag()) {
+    const maxAttempts = 3;
+
+    while (
+        !cancelFlag() &&
+        attempts < maxAttempts
+    ) {
         attempts++;
 
         try {
             await progressUpdater.updateEmbed(
-                'AI is solving the question...'
+                `AI is solving the question... (Attempt ${attempts}/${maxAttempts})`
             );
 
             const result =
                 await runWithTimeout(
                     actionFn,
-                    60000
+                    maxWaitMs
                 );
 
             if (
-                typeof result !==
-                'number'
+                typeof result !== 'number'
             ) {
                 return result;
             }
@@ -60,12 +69,26 @@ async function getAIanswer(
 
         } catch (error) {
             console.error(
-                '[AI] Request failed:',
-                error.message
+                `[AI] Attempt ${attempts} failed:`,
+                error?.message || error
             );
 
+            if (
+                attempts >= maxAttempts
+            ) {
+                await progressUpdater.updateEmbed(
+                    '❌ AI failed after 3 attempts.'
+                );
+
+                throw new Error(
+                    `AI failed after ${maxAttempts} attempts: ${
+                        error?.message || 'Unknown error'
+                    }`
+                );
+            }
+
             await progressUpdater.updateEmbed(
-                'AI request timed out or failed. Retrying...'
+                `AI request timed out or failed. Retrying... (${attempts}/${maxAttempts})`
             );
         }
 
@@ -81,8 +104,7 @@ async function getAIanswer(
             )
         ) {
             const timeLeft =
-                maxWaitMs -
-                elapsed;
+                maxWaitMs - elapsed;
 
             const wait =
                 Math.min(
@@ -113,7 +135,13 @@ async function getAIanswer(
         }
     }
 
-    return 'break';
+    if (cancelFlag()) {
+        return 'break';
+    }
+
+    throw new Error(
+        'AI failed after maximum retry attempts.'
+    );
 }
 
 module.exports =
