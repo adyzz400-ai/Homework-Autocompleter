@@ -712,34 +712,58 @@ async function getCookies(
       // IMPORTANT NAVIGATION FIX
       // --------------------------------------------------------
 
-      const navigationPromise =
-        page.waitForNavigation({
-          waitUntil:
-            'domcontentloaded',
-          timeout: 10000
-        }).catch(() => null);
+      addLog('Preparing to click Continue...');
 
+const continueButton = await page.waitForSelector(
+  'button',
+  {
+    visible: true,
+    timeout: 15000
+  }
+);
 
-      await clickButtonWithText(
-        page,
-        'Continue',
-        15000
-      );
+const buttonText = await page.evaluate(
+  el => el.innerText?.trim(),
+  continueButton
+);
 
-      addLog(
-        'Clicked Continue.'
-      );
+addLog(`Continue button detected: "${buttonText}"`);
 
+if (buttonText !== 'Continue') {
+  throw new Error(
+    `Expected Continue button, found "${buttonText}".`
+  );
+}
 
-      await Promise.race([
-        navigationPromise,
-        delay(5000)
-      ]);
+addLog('Clicking Continue and waiting for navigation...');
 
+const [navigationResponse] = await Promise.all([
+  page.waitForNavigation({
+    waitUntil: 'domcontentloaded',
+    timeout: 15000
+  }).catch(() => null),
 
-      addLog(
-        `Post-school URL: ${page.url()}`
-      );
+  continueButton.click()
+]);
+
+addLog(
+  `Continue click completed. Navigation response: ${
+    navigationResponse ? 'received' : 'none'
+  }`
+);
+
+await delay(2000);
+
+addLog(`Post-school URL: ${page.url()}`);
+addLog(`Post-school title: ${await page.title()}`);
+
+if (
+  page.url().includes('selectschool.sparx-learning.com')
+) {
+  throw new Error(
+    'Continue did not leave the Sparx school-selection page.'
+  );
+}
 
 addLog('--- LOGIN PAGE DIAGNOSTIC START ---');
 
