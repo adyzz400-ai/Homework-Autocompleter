@@ -709,10 +709,21 @@ async function getCookies(
 
 
       // --------------------------------------------------------
-      // IMPORTANT NAVIGATION FIX
+      // CONTINUE BUTTON DIAGNOSTIC
       // --------------------------------------------------------
 
-      addLog('Preparing to click Continue...');
+addLog('Preparing to click Continue...');
+
+// Capture JavaScript errors from the Sparx page.
+page.on('pageerror', err => {
+  addLog(`PAGE ERROR: ${err.message}`);
+});
+
+page.on('console', msg => {
+  if (msg.type() === 'error') {
+    addLog(`BROWSER CONSOLE ERROR: ${msg.text()}`);
+  }
+});
 
 const continueButton = await page.waitForSelector(
   'button',
@@ -722,94 +733,97 @@ const continueButton = await page.waitForSelector(
   }
 );
 
-const buttonText = await page.evaluate(
-  el => el.innerText?.trim(),
-  continueButton
-);
-
-addLog(`Continue button detected: "${buttonText}"`);
-
-if (buttonText !== 'Continue') {
-  throw new Error(
-    `Expected Continue button, found "${buttonText}".`
-  );
-}
-
-addLog('Clicking Continue and waiting for navigation...');
-
-const [navigationResponse] = await Promise.all([
-  page.waitForNavigation({
-    waitUntil: 'domcontentloaded',
-    timeout: 15000
-  }).catch(() => null),
-
-  continueButton.click()
-]);
+const continueState = await continueButton.evaluate(el => ({
+  text: el.innerText?.trim(),
+  disabled: el.disabled,
+  type: el.getAttribute('type'),
+  className: el.className,
+  outerHTML: el.outerHTML,
+  formAction: el.form?.action || null,
+  formMethod: el.form?.method || null
+}));
 
 addLog(
-  `Continue click completed. Navigation response: ${
-    navigationResponse ? 'received' : 'none'
-  }`
+  `Continue state: ${JSON.stringify(continueState)}`
 );
 
-await delay(2000);
-
-addLog(`Post-school URL: ${page.url()}`);
-addLog(`Post-school title: ${await page.title()}`);
-
-if (
-  page.url().includes('selectschool.sparx-learning.com')
-) {
+if (continueState.text !== 'Continue') {
   throw new Error(
-    'Continue did not leave the Sparx school-selection page.'
+    `Expected Continue button, found "${continueState.text}".`
   );
 }
 
-addLog('--- LOGIN PAGE DIAGNOSTIC START ---');
+if (continueState.disabled) {
+  throw new Error(
+    'Continue button is disabled.'
+  );
+}
 
-const diagnosis = await page.evaluate(() => {
-  const visible = el => {
-    const s = getComputedStyle(el);
-    return (
-      s.display !== 'none' &&
-      s.visibility !== 'hidden' &&
-      el.offsetParent !== null
-    );
-  };
+addLog(
+  'Waiting for Sparx page JavaScript to finish settling...'
+);
 
-  return {
-    url: location.href,
-    title: document.title,
+await delay(3000);
 
-    inputs: [...document.querySelectorAll('input')]
-      .filter(visible)
-      .map((el, i) => ({
-        index: i,
-        type: el.type,
-        name: el.name,
-        id: el.id,
-        placeholder: el.placeholder,
-        className: el.className
-      })),
+addLog(
+  'Clicking Continue using Puppeteer mouse input...'
+);
 
-    buttons: [...document.querySelectorAll('button')]
-      .filter(visible)
-      .map((el, i) => ({
-        index: i,
-        text: el.innerText?.trim(),
-        className: el.className
-      })),
+await continueButton.click();
 
-    bodyText: document.body?.innerText?.slice(0, 3000) || ''
-  };
-});
+addLog(
+  'Continue click sent.'
+);
 
-addLog(`LOGIN DIAGNOSIS: ${JSON.stringify(diagnosis)}`);
+// Give the client-side application time to react.
+await delay(3000);
 
-addLog('--- LOGIN PAGE DIAGNOSTIC END ---');
+addLog(
+  `Post-click URL: ${page.url()}`
+);
 
-throw new Error(
-  `Login page diagnostic complete. URL: ${page.url()}`
+addLog(
+  `Post-click title: ${await page.title()}`
+);
+
+const postClickState = await page.evaluate(() => ({
+  url: location.href,
+
+  buttons: [...document.querySelectorAll('button')]
+    .filter(el => el.offsetParent !== null)
+    .map(el => ({
+      text: el.innerText?.trim(),
+      disabled: el.disabled
+    })),
+
+  inputs: [...document.querySelectorAll('input')]
+    .filter(el => el.offsetParent !== null)
+    .map(el => ({
+      type: el.type,
+      placeholder: el.placeholder,
+      value: el.value
+    })),
+
+  bodyText:
+    document.body?.innerText?.slice(0, 2000) || ''
+}));
+
+addLog(
+  `Post-click state: ${JSON.stringify(postClickState)}`
+);
+
+if (
+  page.url().includes(
+    'selectschool.sparx-learning.com'
+  )
+) {
+  throw new Error(
+    'Continue was clicked, but Sparx remained on the school-selection page.'
+  );
+}
+
+addLog(
+  'Sparx left the school-selection page.'
 );
 
       // --------------------------------------------------------
