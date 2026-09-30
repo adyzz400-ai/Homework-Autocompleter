@@ -741,6 +741,52 @@ async function getCookies(
         `Post-school URL: ${page.url()}`
       );
 
+addLog('--- LOGIN PAGE DIAGNOSTIC START ---');
+
+const diagnosis = await page.evaluate(() => {
+  const visible = el => {
+    const s = getComputedStyle(el);
+    return (
+      s.display !== 'none' &&
+      s.visibility !== 'hidden' &&
+      el.offsetParent !== null
+    );
+  };
+
+  return {
+    url: location.href,
+    title: document.title,
+
+    inputs: [...document.querySelectorAll('input')]
+      .filter(visible)
+      .map((el, i) => ({
+        index: i,
+        type: el.type,
+        name: el.name,
+        id: el.id,
+        placeholder: el.placeholder,
+        className: el.className
+      })),
+
+    buttons: [...document.querySelectorAll('button')]
+      .filter(visible)
+      .map((el, i) => ({
+        index: i,
+        text: el.innerText?.trim(),
+        className: el.className
+      })),
+
+    bodyText: document.body?.innerText?.slice(0, 3000) || ''
+  };
+});
+
+addLog(`LOGIN DIAGNOSIS: ${JSON.stringify(diagnosis)}`);
+
+addLog('--- LOGIN PAGE DIAGNOSTIC END ---');
+
+throw new Error(
+  `Login page diagnostic complete. URL: ${page.url()}`
+);
 
       // --------------------------------------------------------
       // COOKIE POPUP
