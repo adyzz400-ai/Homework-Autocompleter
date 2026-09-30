@@ -703,6 +703,33 @@ async function getCookies(
 
       addLog('Selected school result.');
 
+const selectedSchoolDiagnostic = await page.evaluate(() => {
+  const elements = [...document.querySelectorAll('*')];
+
+  return elements
+    .filter(el => {
+      const text = el.innerText?.trim() || '';
+
+      return (
+        text === 'Heston Community School' ||
+        text.startsWith('Heston Community School')
+      );
+    })
+    .slice(0, 10)
+    .map(el => ({
+      tag: el.tagName,
+      text: el.innerText?.trim(),
+      role: el.getAttribute('role'),
+      ariaSelected: el.getAttribute('aria-selected'),
+      className: el.className,
+      disabled: el.disabled ?? null
+    }));
+});
+
+addLog(
+  `Selected school diagnostic: ${JSON.stringify(selectedSchoolDiagnostic)}`
+);
+
 const schoolState = await page.evaluate(() => {
   const input = document.querySelector(
     'input[placeholder*="Start typing your school"]'
