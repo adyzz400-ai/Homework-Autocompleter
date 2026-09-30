@@ -701,9 +701,32 @@ async function getCookies(
         15000
       );
 
-      addLog(
-        'Selected school result.'
-      );
+      addLog('Selected school result.');
+
+const schoolState = await page.evaluate(() => {
+  const input = document.querySelector(
+    'input[placeholder*="Start typing your school"]'
+  );
+
+  const buttons = [...document.querySelectorAll('button')];
+
+  const continueButton = buttons.find(
+    b => b.innerText?.trim() === 'Continue'
+  );
+
+  return {
+    inputValue: input?.value || '',
+    continueDisabled: continueButton?.disabled ?? null,
+    continueAriaDisabled:
+      continueButton?.getAttribute('aria-disabled') || null
+  };
+});
+
+addLog(
+  `School selection state: ${JSON.stringify(schoolState)}`
+);
+
+// Your existing Continue-button code comes after this
 
       schoolStatus = true;
 
