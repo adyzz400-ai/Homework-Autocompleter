@@ -1,8 +1,27 @@
-const { ComponentType, ButtonBuilder, ButtonStyle, ActionRowBuilder, ContainerBuilder, TextDisplayBuilder, SeparatorBuilder, SeparatorSpacingSize, MediaGalleryBuilder, MediaGalleryItemBuilder } = require('discord.js');
-const { handleSparxLogin } = require('../handlers/sparxLoginHandler');
-const { handleSavedAccounts } = require('../handlers/savedAccountsHandler.js');
-const { validAccount } = require('../handlers/accountHandler.js');
-const { emojis } = require('../config.json');
+const {
+    ComponentType,
+    ButtonBuilder,
+    ButtonStyle,
+    ActionRowBuilder,
+    ContainerBuilder,
+    TextDisplayBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    MediaGalleryBuilder,
+    MediaGalleryItemBuilder
+} = require('discord.js');
+
+const {
+    handleSparxLogin
+} = require('../handlers/sparxLoginHandler');
+
+const {
+    handleSavedAccounts
+} = require('../handlers/savedAccountsHandler.js');
+
+const {
+    emojis
+} = require('../config.json');
 
 const helpSteps = [
     {
@@ -29,75 +48,90 @@ const helpSteps = [
     {
         title: "Step 5: Load the extension",
         description: "Click on ``Load unpacked`` and select the folder where you extracted the extension.",
-        gif: "https://cdn.discordapp.com/attachments/1352797472652525649/1476330466612347091/sparxnow.gif?ex=69a0bb64&is=699f69e4&hm=c9b27fc91ed990674e9c0f485ac458d2820b974e204bf677530d4d0622c7ce5b&"
+        gif: "https://cdn.discordapp.com/attachments/1352797472652525649/1476330466612347091/ sparxnow.gif?ex=69a0bb64&is=699f69e4&hm=c9b27fc91ed990674e9c0f485ac458d2820b974e204bf677530d4d0622c7ce5b&"
     },
     {
         title: "Step 6: Get your cookie",
         description: "Go on the homework website, click on the extension, click copy, and then paste it in Discord.",
-        gif: "https://cdn.discordapp.com/attachments/1352797472652525649/1476330466612347091/sparxnow.gif?ex=69a0bb64&is=699f69e4&hm=c9b27fc91ed990674e9c0f485ac458d2820b974e204bf677530d4d0622c7ce5b&"
+        gif:"https://cdn.discordapp.com/attachments/1352797472652525649/1476330466612347091/sparxnow.gif?ex=69a0bb64&is=699f69e4&hm=c9b27fc91ed990674e9c0f485ac458d2820b974e204bf677530d4d0622c7ce5b&"
     }
 ];
 
 function getLoginContainer(nameL) {
     const idValues = {};
+
     if (nameL === 'Maths') {
-        idValues['loginBtn'] = 'login';
-        idValues['loginCookieBtn'] = 'login_cookies';
-        idValues['nameL'] = 'Maths';
-        idValues['nameS'] = 'maths';
+        idValues.loginBtn = 'login';
+        idValues.loginCookieBtn = 'login_cookies';
+        idValues.nameL = 'Maths';
+        idValues.nameS = 'maths';
     } else if (nameL === 'Reader') {
-        idValues['loginBtn'] = 'sparxreader_login';
-        idValues['loginCookieBtn'] = 'sparxreader_login_cookies';
-        idValues['nameL'] = 'Reader';
-        idValues['nameS'] = 'reader';
+        idValues.loginBtn = 'sparxreader_login';
+        idValues.loginCookieBtn = 'sparxreader_login_cookies';
+        idValues.nameL = 'Reader';
+        idValues.nameS = 'reader';
     } else if (nameL === 'Science') {
-        idValues['loginBtn'] = 'sparxscience_login';
-        idValues['loginCookieBtn'] = 'sparxscience_login_cookies';
-        idValues['nameL'] = 'Science';
-        idValues['nameS'] = 'science';
+        idValues.loginBtn = 'sparxscience_login';
+        idValues.loginCookieBtn = 'sparxscience_login_cookies';
+        idValues.nameL = 'Science';
+        idValues.nameS = 'science';
     }
 
     const loginBtn = new ButtonBuilder()
-        .setCustomId(idValues['loginBtn'])
+        .setCustomId(idValues.loginBtn)
         .setLabel('Login')
         .setStyle(ButtonStyle.Success)
         .setEmoji(emojis.login);
 
     const loginCookieBtn = new ButtonBuilder()
-        .setCustomId(idValues['loginCookieBtn'])
+        .setCustomId(idValues.loginCookieBtn)
         .setLabel('Login with Cookies')
         .setStyle(ButtonStyle.Success)
         .setEmoji(emojis.cookies);
 
     const savedBtn = new ButtonBuilder()
-        .setCustomId(idValues['nameS'] + "_savedAccounts_view")
+        .setCustomId(`${idValues.nameS}_savedAccounts_view`)
         .setLabel('Saved Accounts')
         .setStyle(ButtonStyle.Primary)
         .setEmoji(emojis.accounts);
 
     const helpBtn = new ButtonBuilder()
-        .setCustomId(`cookie_help_0_${idValues['nameL']}`)
+        .setCustomId(`cookie_help_0_${idValues.nameL}`)
         .setLabel('Help')
         .setStyle(ButtonStyle.Secondary)
         .setEmoji(emojis.help || '❔');
 
-    const row = new ActionRowBuilder().addComponents(loginBtn, loginCookieBtn, savedBtn);
-    const row2 = new ActionRowBuilder().addComponents(helpBtn);
+    const row = new ActionRowBuilder()
+        .addComponents(
+            loginBtn,
+            loginCookieBtn,
+            savedBtn
+        );
+
+    const row2 = new ActionRowBuilder()
+        .addComponents(helpBtn);
 
     let embedColor;
-    if (idValues['nameS'] === 'reader') {
-        embedColor = 0x4467C4; // Sparx Reader purple
-    } else if (idValues['nameS'] === 'maths') {
-        embedColor = 0x0099FF; // Sparx Maths blue
+
+    if (idValues.nameS === 'reader') {
+        embedColor = 0x4467C4;
+    } else if (idValues.nameS === 'maths') {
+        embedColor = 0xE53935;
     } else {
-        embedColor = 0x1d9b8f; // Sparx Science teal
+        embedColor = 0x1d9b8f;
     }
 
-    const seperator = new SeparatorBuilder({
+    const separator = new SeparatorBuilder({
         spacing: SeparatorSpacingSize.Small
     });
 
-    const section = new TextDisplayBuilder().setContent(`# Sparx ${idValues['nameL']} Login\nUsing the regular \`\`Login\`\` is recommended but\nif you are unable to for any reasons, you can choose to \`\`Login with cookies\`\``);
+    const section =
+        new TextDisplayBuilder()
+            .setContent(
+                `# Sparx ${idValues.nameL} Login\n` +
+                `Using the regular \`\`Login\`\` is recommended but\n` +
+                `if you are unable to for any reasons, you can choose to \`\`Login with cookies\`\``
+            );
 
     return new ContainerBuilder()
         .setAccentColor(embedColor)
@@ -105,7 +139,7 @@ function getLoginContainer(nameL) {
             section.data
         )
         .addSeparatorComponents(
-            seperator
+            separator
         )
         .addActionRowComponents(
             row,
@@ -113,166 +147,467 @@ function getLoginContainer(nameL) {
         );
 }
 
-function getHelpEmbed(stepIndex, nameL, accentColor) {
+function getHelpEmbed(
+    stepIndex,
+    nameL,
+    accentColor
+) {
     const step = helpSteps[stepIndex];
-    if (!step) return null;
 
-    // Build the description text, appending a download link if there's an attachment
-    let descriptionText = step.description;
-    if (step.attachment) {
-        descriptionText += `\n[📥 Download Extension](${step.attachment})`;
+    if (!step) {
+        return null;
     }
 
-    const container = new ContainerBuilder()
-        .setAccentColor(accentColor)
-        .addTextDisplayComponents(
-            new TextDisplayBuilder().setContent(`# ${step.title}`).data,
-            new TextDisplayBuilder().setContent(descriptionText).data
-        );
+    let descriptionText =
+        step.description;
+
+    if (step.attachment) {
+        descriptionText +=
+            `\n[📥 Download Extension](${step.attachment})`;
+    }
+
+    const container =
+        new ContainerBuilder()
+            .setAccentColor(accentColor)
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(`# ${step.title}`)
+                    .data,
+
+                new TextDisplayBuilder()
+                    .setContent(descriptionText)
+                    .data
+            );
 
     if (step.gif) {
-        const gallery = new MediaGalleryBuilder()
-            .addItems(new MediaGalleryItemBuilder().setURL(step.gif));
-        container.addMediaGalleryComponents(gallery);
+        const gallery =
+            new MediaGalleryBuilder()
+                .addItems(
+                    new MediaGalleryItemBuilder()
+                        .setURL(step.gif)
+                );
+
+        container.addMediaGalleryComponents(
+            gallery
+        );
     }
 
-    container.addSeparatorComponents(new SeparatorBuilder({ spacing: SeparatorSpacingSize.Small }));
+    container.addSeparatorComponents(
+        new SeparatorBuilder({
+            spacing:
+                SeparatorSpacingSize.Small
+        })
+    );
 
-    const isFirstStep = stepIndex === 0;
-    const backBtn = new ButtonBuilder()
-        .setCustomId(isFirstStep ? `cookie_help_login_${nameL}` : `cookie_help_${stepIndex - 1}_${nameL}`)
-        .setEmoji(emojis.arrow_left || '⬅️')
-        .setStyle(ButtonStyle.Secondary);
+    const isFirstStep =
+        stepIndex === 0;
 
-    const middleBtn = new ButtonBuilder()
-        .setCustomId(`cookie_help_noop_${stepIndex}`)
-        .setEmoji(emojis.sparxnow || emojis.sparx || '🛡️')
-        .setStyle(ButtonStyle.Secondary);
+    const backBtn =
+        new ButtonBuilder()
+            .setCustomId(
+                isFirstStep
+                    ? `cookie_help_login_${nameL}`
+                    : `cookie_help_${stepIndex - 1}_${nameL}`
+            )
+            .setEmoji(
+                emojis.arrow_left || '⬅️'
+            )
+            .setStyle(
+                ButtonStyle.Secondary
+            );
 
-    const isLastStep = stepIndex === helpSteps.length - 1;
-    const forwardBtn = new ButtonBuilder()
-        .setCustomId(isLastStep ? `cookie_help_${nameL}_cookies` : `cookie_help_${stepIndex + 1}_${nameL}`)
-        .setEmoji(emojis.arrow_right || '➡️')
-        .setStyle(isLastStep ? ButtonStyle.Success : ButtonStyle.Primary);
+    const middleBtn =
+        new ButtonBuilder()
+            .setCustomId(
+                `cookie_help_noop_${stepIndex}`
+            )
+            .setEmoji(
+                emojis.sparxnow ||
+                emojis.sparx ||
+                '🛡️'
+            )
+            .setStyle(
+                ButtonStyle.Secondary
+            );
 
-    const row = new ActionRowBuilder().addComponents(backBtn, middleBtn, forwardBtn);
-    container.addActionRowComponents(row);
+    const isLastStep =
+        stepIndex ===
+        helpSteps.length - 1;
+
+    const forwardBtn =
+        new ButtonBuilder()
+            .setCustomId(
+                isLastStep
+                    ? `cookie_help_${nameL}_cookies`
+                    : `cookie_help_${stepIndex + 1}_${nameL}`
+            )
+            .setEmoji(
+                emojis.arrow_right || '➡️'
+            )
+            .setStyle(
+                isLastStep
+                    ? ButtonStyle.Success
+                    : ButtonStyle.Primary
+            );
+
+    const row =
+        new ActionRowBuilder()
+            .addComponents(
+                backBtn,
+                middleBtn,
+                forwardBtn
+            );
+
+    container.addActionRowComponents(
+        row
+    );
 
     return container;
 }
 
 async function sparxReaderCollector(message) {
-    const collector = message.createMessageComponentCollector({
-        componentType: ComponentType.Button
-    });
+    const collector =
+        message.createMessageComponentCollector({
+            componentType:
+                ComponentType.Button
+        });
 
-    collector.on('collect', async (interaction) => {
-        try {
+    collector.on(
+        'collect',
+        async (interaction) => {
+            try {
 
-            if (await validAccount(interaction, 'sparx')) return;
+                /*
+                 * IMPORTANT:
+                 * Do NOT call validAccount() here.
+                 *
+                 * Sparx Maths now has its own Discord-only
+                 * login flow and must not require the old
+                 * /account SparxNow account system.
+                 */
 
-            if (interaction.customId === 'sparx_maths_show_login' || interaction.customId === 'login' || interaction.customId === 'sparxreader' || interaction.customId === 'sparx_science_show_login') {
-                // We no longer update the original persistent message here, so multiple users can press login at once.
+                if (
+                    interaction.customId ===
+                        'sparx_maths_show_login' ||
+                    interaction.customId ===
+                        'login' ||
+                    interaction.customId ===
+                        'sparxreader' ||
+                    interaction.customId ===
+                        'sparx_science_show_login'
+                ) {
 
-                let nameL, nameS;
-                const idValues = {};
-                if (interaction.customId === 'sparx_maths_show_login' || interaction.customId === 'login') {
-                    nameL = 'Maths';
-                    nameS = 'maths';
-                    idValues['loginBtn'] = 'login';
-                    idValues['loginCookieBtn'] = 'login_cookies';
-                } else if (interaction.customId === 'sparxreader') {
-                    nameL = 'Reader';
-                    nameS = 'reader';
-                    idValues['loginBtn'] = 'sparxreader_login';
-                    idValues['loginCookieBtn'] = 'sparxreader_login_cookies';
-                } else if (interaction.customId === 'sparx_science_show_login') {
-                    nameL = 'Science';
-                    nameS = 'science';
-                    idValues['loginBtn'] = 'sparxscience_login';
-                    idValues['loginCookieBtn'] = 'sparxscience_login_cookies';
-                }
-                idValues['nameS'] = nameS;
-                idValues['nameL'] = nameL;
+                    let nameL;
+                    let nameS;
 
-                const container = getLoginContainer(nameL);
-                const embedColor = container.data.accent_color;
+                    const idValues = {};
 
-                // console.log(container);
+                    if (
+                        interaction.customId ===
+                            'sparx_maths_show_login' ||
+                        interaction.customId ===
+                            'login'
+                    ) {
 
-                try {
-                    await interaction.reply({
-                        flags: 32768 | 64,
-                        components: [container]
-                    });
-                } catch {
-                    return;
-                }
-                const replyMessage = await interaction.fetchReply();
+                        nameL = 'Maths';
+                        nameS = 'maths';
 
-                const collector = replyMessage.createMessageComponentCollector({
-                    componentType: ComponentType.Button
-                });
+                        idValues.loginBtn =
+                            'login';
 
-                collector.on('collect', async (buttonInteraction) => {
-                    try {
-                        if (buttonInteraction.customId === idValues['loginBtn']) {
-                            await handleSparxLogin(buttonInteraction, `homework_${idValues['nameS']}`);
-                        } else if (buttonInteraction.customId === idValues['loginCookieBtn']) {
-                            await handleSparxLogin(buttonInteraction, `homework_${idValues['nameS']}`);
-                        } else if (buttonInteraction.customId.startsWith(idValues['nameS'] + "_savedAccounts")) {
-                            const action = buttonInteraction.customId.split('_')[2];
-                            await handleSavedAccounts(buttonInteraction, action, idValues['nameS']);
-                        } else if (buttonInteraction.customId.startsWith('cookie_help_')) {
-                            if (buttonInteraction.customId.includes('_noop_')) {
-                                await buttonInteraction.deferUpdate();
-                                return;
-                            }
-                            if (buttonInteraction.customId.includes('_cookies')) {
-                                const platform = buttonInteraction.customId.split('_')[2];
-                                await handleSparxLogin(buttonInteraction, `homework_${platform.toLowerCase()}`);
-                                return;
-                            }
-                            if (buttonInteraction.customId.includes('_login_')) {
-                                const platform = buttonInteraction.customId.split('_')[3];
-                                const loginContainer = getLoginContainer(platform);
-                                await buttonInteraction.update({ components: [loginContainer] });
-                                return;
-                            }
-                            const [, , stepIdx, platform] = buttonInteraction.customId.split('_');
-                            const helpEmbed = getHelpEmbed(parseInt(stepIdx), platform, embedColor);
-                            if (helpEmbed) {
-                                await buttonInteraction.update({ components: [helpEmbed] });
-                            }
-                        }
-                    } catch (err) {
-                        console.error(`Error in Sparx ${idValues['nameL']} login sub-collector:`, err);
-                        if (!buttonInteraction.replied && !buttonInteraction.deferred) {
-                            try {
-                                await buttonInteraction.reply({ content: 'An error occurred while processing your request.', flags: 64 });
-                            } catch { }
-                        }
+                        idValues.loginCookieBtn =
+                            'login_cookies';
+
+                    } else if (
+                        interaction.customId ===
+                        'sparxreader'
+                    ) {
+
+                        nameL = 'Reader';
+                        nameS = 'reader';
+
+                        idValues.loginBtn =
+                            'sparxreader_login';
+
+                        idValues.loginCookieBtn =
+                            'sparxreader_login_cookies';
+
+                    } else if (
+                        interaction.customId ===
+                        'sparx_science_show_login'
+                    ) {
+
+                        nameL = 'Science';
+                        nameS = 'science';
+
+                        idValues.loginBtn =
+                            'sparxscience_login';
+
+                        idValues.loginCookieBtn =
+                            'sparxscience_login_cookies';
                     }
-                });
 
-            } else if (interaction.customId.startsWith('check_queue')) {
-                const { queueCollector } = require('../queues/queueCollecting.js');
-                await queueCollector(interaction, interaction.customId.split('_')[2]);
-            }
-            else {
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.deferUpdate();
+                    idValues.nameS =
+                        nameS;
+
+                    idValues.nameL =
+                        nameL;
+
+                    const container =
+                        getLoginContainer(
+                            nameL
+                        );
+
+                    const embedColor =
+                        container.data.accent_color;
+
+                    try {
+
+                        await interaction.reply({
+                            flags:
+                                32768 | 64,
+
+                            components:
+                                [container]
+                        });
+
+                    } catch {
+                        return;
+                    }
+
+                    const replyMessage =
+                        await interaction.fetchReply();
+
+                    const loginCollector =
+                        replyMessage
+                            .createMessageComponentCollector({
+                                componentType:
+                                    ComponentType.Button
+                            });
+
+                    loginCollector.on(
+                        'collect',
+                        async (
+                            buttonInteraction
+                        ) => {
+
+                            try {
+
+                                if (
+                                    buttonInteraction.customId ===
+                                    idValues.loginBtn
+                                ) {
+
+                                    await handleSparxLogin(
+                                        buttonInteraction,
+                                        `homework_${idValues.nameS}`
+                                    );
+
+                                } else if (
+                                    buttonInteraction.customId ===
+                                    idValues.loginCookieBtn
+                                ) {
+
+                                    await handleSparxLogin(
+                                        buttonInteraction,
+                                        `homework_${idValues.nameS}`
+                                    );
+
+                                } else if (
+                                    buttonInteraction.customId.startsWith(
+                                        `${idValues.nameS}_savedAccounts`
+                                    )
+                                ) {
+
+                                    const action =
+                                        buttonInteraction
+                                            .customId
+                                            .split('_')[2];
+
+                                    await handleSavedAccounts(
+                                        buttonInteraction,
+                                        action,
+                                        idValues.nameS
+                                    );
+
+                                } else if (
+                                    buttonInteraction.customId.startsWith(
+                                        'cookie_help_'
+                                    )
+                                ) {
+
+                                    if (
+                                        buttonInteraction.customId.includes(
+                                            '_noop_'
+                                        )
+                                    ) {
+
+                                        await buttonInteraction
+                                            .deferUpdate();
+
+                                        return;
+                                    }
+
+                                    if (
+                                        buttonInteraction.customId.includes(
+                                            '_cookies'
+                                        )
+                                    ) {
+
+                                        const platform =
+                                            buttonInteraction
+                                                .customId
+                                                .split('_')[2];
+
+                                        await handleSparxLogin(
+                                            buttonInteraction,
+                                            `homework_${platform.toLowerCase()}`
+                                        );
+
+                                        return;
+                                    }
+
+                                    if (
+                                        buttonInteraction.customId.includes(
+                                            '_login_'
+                                        )
+                                    ) {
+
+                                        const platform =
+                                            buttonInteraction
+                                                .customId
+                                                .split('_')[3];
+
+                                        const loginContainer =
+                                            getLoginContainer(
+                                                platform
+                                            );
+
+                                        await buttonInteraction.update({
+                                            components:
+                                                [loginContainer]
+                                        });
+
+                                        return;
+                                    }
+
+                                    const [
+                                        ,
+                                        ,
+                                        stepIdx,
+                                        platform
+                                    ] =
+                                        buttonInteraction
+                                            .customId
+                                            .split('_');
+
+                                    const helpEmbed =
+                                        getHelpEmbed(
+                                            parseInt(
+                                                stepIdx
+                                            ),
+                                            platform,
+                                            embedColor
+                                        );
+
+                                    if (helpEmbed) {
+
+                                        await buttonInteraction.update({
+                                            components:
+                                                [helpEmbed]
+                                        });
+                                    }
+                                }
+
+                            } catch (err) {
+
+                                console.error(
+                                    `Error in Sparx ${idValues.nameL} login sub-collector:`,
+                                    err
+                                );
+
+                                if (
+                                    !buttonInteraction.replied &&
+                                    !buttonInteraction.deferred
+                                ) {
+
+                                    try {
+
+                                        await buttonInteraction.reply({
+                                            content:
+                                                'An error occurred while processing your request.',
+
+                                            flags:
+                                                64
+                                        });
+
+                                    } catch {}
+                                }
+                            }
+                        }
+                    );
                 }
-            }
-        } catch (err) {
-            console.error('Error in Sparx Maths collector:', err);
-            if (!interaction.replied && !interaction.deferred) {
-                try {
-                    await interaction.reply({ content: 'An error occurred while processing your request.', flags: 64 });
-                } catch { }
+
+                else if (
+                    interaction.customId.startsWith(
+                        'check_queue'
+                    )
+                ) {
+
+                    const {
+                        queueCollector
+                    } =
+                        require(
+                            '../queues/queueCollecting.js'
+                        );
+
+                    await queueCollector(
+                        interaction,
+                        interaction.customId
+                            .split('_')[2]
+                    );
+                }
+
+                else {
+
+                    if (
+                        !interaction.replied &&
+                        !interaction.deferred
+                    ) {
+
+                        await interaction.deferUpdate();
+                    }
+                }
+
+            } catch (err) {
+
+                console.error(
+                    'Error in Sparx Maths collector:',
+                    err
+                );
+
+                if (
+                    !interaction.replied &&
+                    !interaction.deferred
+                ) {
+
+                    try {
+
+                        await interaction.reply({
+                            content:
+                                'An error occurred while processing your request.',
+
+                            flags:
+                                64
+                        });
+
+                    } catch {}
+                }
             }
         }
-    });
+    );
 }
 
-module.exports = { sparxReaderCollector };
+module.exports = {
+    sparxReaderCollector
+};
