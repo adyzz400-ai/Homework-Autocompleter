@@ -312,100 +312,49 @@ async function findSchoolInput(
 // SELECT SCHOOL RESULT
 // ============================================================
 
-async function selectSchoolResult(
-  page,
-  school,
-  timeout = 15000
-) {
+async function selectSchoolResult(page, school, timeout = 15000) {
   const start = Date.now();
 
-  while (
-    Date.now() - start <
-    timeout
-  ) {
+  while (Date.now() - start < timeout) {
     try {
-      const clicked =
-        await page.evaluate(
-          schoolName => {
-            const wanted =
-              schoolName
-                .trim()
-                .toLowerCase();
+      const result = await page.$(
+        'div[class*="SchoolResult_"]'
+      );
 
-            const candidates =
-              Array.from(
-                document.querySelectorAll(
-                  'button, [role="option"], li, [class*="SchoolResult"], [class*="school"]'
-                )
-              );
-
-            const visible =
-              candidates.filter(
-                element => {
-                  if (
-                    element.offsetParent === null
-                  ) {
-                    return false;
-                  }
-
-                  const text =
-                    element.textContent
-                      ?.trim() || '';
-
-                  return text.length > 0;
-                }
-              );
-
-            let match =
-              visible.find(
-                element =>
-                  element.textContent
-                    .trim()
-                    .toLowerCase() ===
-                  wanted
-              );
-
-            if (!match) {
-              const matches =
-                visible.filter(
-                  element =>
-                    element.textContent
-                      .trim()
-                      .toLowerCase()
-                      .includes(wanted)
-                );
-
-              matches.sort(
-                (a, b) =>
-                  a.textContent
-                    .trim()
-                    .length -
-                  b.textContent
-                    .trim()
-                    .length
-              );
-
-              match = matches[0];
-            }
-
-            if (!match) {
-              return false;
-            }
-
-            match.click();
-
-            return true;
-          },
-          school
-        );
-
-      if (clicked) {
-        return true;
+      if (!result) {
+        await delay(200);
+        continue;
       }
 
-    } catch {}
+      const details = await result.evaluate(el => ({
+        text: el.innerText?.trim() || '',
+        className: el.className,
+        visible: el.offsetParent !== null
+      }));
 
-    await delay(200);
+      if (
+        !details.visible ||
+        !details.text
+          .toLowerCase()
+          .includes(school.trim().toLowerCase())
+      ) {
+        await delay(200);
+        continue;
+      }
+
+      await result.click();
+
+      console.log(
+        `School result clicked: ${JSON.stringify(details)}`
+      );
+
+      await delay(1000);
+
+      return true;
+
+    } catch (err) {
+      await delay(200);
+    }
   }
 
   throw new Error(
