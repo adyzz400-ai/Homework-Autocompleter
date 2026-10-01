@@ -222,89 +222,52 @@ async function clickButtonWithText(
 // FIND SCHOOL INPUT
 // ============================================================
 
-async function findSchoolInput(
-  page,
-  timeout = 15000
-) {
-  const start = Date.now();
+async function findSchoolInput(page, timeout = 30000) {
+  const selector =
+    'input[placeholder*="Start typing your school"]';
 
-  while (
-    Date.now() - start <
-    timeout
-  ) {
-    try {
-      const selector =
-        'input[placeholder*="Start typing your school"]';
+  try {
+    await page.waitForSelector(selector, {
+      timeout,
+      visible: false
+    });
 
-      const input =
-        await page.$(selector);
+    const input = await page.$(selector);
 
-      if (input) {
-        const visible =
-          await input.isIntersectingViewport();
+    if (!input) {
+      throw new Error(
+        'Sparx school search input exists but could not be retrieved.'
+      );
+    }
 
-        if (visible) {
-          return input;
-        }
-      }
+    // Wait until the element is actually usable.
+    await page.waitForFunction(
+      selector => {
+        const el = document.querySelector(selector);
 
-      const textInputs =
-        await page.$$('input[type="text"]');
+        if (!el) return false;
 
-      for (
-        const candidate of textInputs
-      ) {
-        try {
-          const visible =
-            await candidate
-              .isIntersectingViewport();
+        const style = window.getComputedStyle(el);
 
-          if (!visible) {
-            continue;
-          }
+        return (
+          !el.disabled &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        );
+      },
+      {
+        timeout
+      },
+      selector
+    );
 
-          const details =
-            await candidate.evaluate(
-              el => ({
-                placeholder:
-                  el.getAttribute(
-                    'placeholder'
-                  ) || '',
+    return input;
 
-                ariaLabel:
-                  el.getAttribute(
-                    'aria-label'
-                  ) || '',
-
-                type:
-                  el.getAttribute(
-                    'type'
-                  ) || ''
-              })
-            );
-
-          const combined =
-            `${details.placeholder} ${details.ariaLabel}`
-              .toLowerCase();
-
-          if (
-            combined.includes('school') ||
-            combined.includes('start typing')
-          ) {
-            return candidate;
-          }
-
-        } catch {}
-      }
-
-    } catch {}
-
-    await delay(200);
+  } catch (err) {
+    throw new Error(
+      `Sparx school search input not found: ${err.message}`
+    );
   }
-
-  throw new Error(
-    'Sparx school search input not found'
-  );
 }
 
 
@@ -557,7 +520,7 @@ async function getCookies(
         {
           waitUntil:
             'domcontentloaded',
-          timeout: 15000
+          timeout: 30000
         }
       );
 
@@ -585,10 +548,10 @@ async function getCookies(
       // --------------------------------------------------------
 
       const schoolInput =
-        await findSchoolInput(
-          page,
-          15000
-        );
+  await findSchoolInput(
+    page,
+    30000
+  );
 
       addLog(
         'Found Sparx school search input.'
