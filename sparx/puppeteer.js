@@ -223,51 +223,87 @@ async function clickButtonWithText(
 // ============================================================
 
 async function findSchoolInput(page, timeout = 30000) {
-  const selector =
-    'input[placeholder*="Start typing your school"]';
+  const selectors = [
+    'input[placeholder*="Start typing your school" i]',
+    'input[placeholder*="school" i]',
+    'input[aria-label*="school" i]',
+    'input[name*="school" i]'
+  ];
 
-  try {
-    await page.waitForSelector(selector, {
-      timeout,
-      visible: false
-    });
+  for (const selector of selectors) {
+    try {
+      await page.waitForSelector(selector, {
+        timeout: 10000,
+        visible: false
+      });
 
-    const input = await page.$(selector);
+      await page.waitForFunction(
+        selector => {
+          const el = document.querySelector(selector);
 
-    if (!input) {
-      throw new Error(
-        'Sparx school search input exists but could not be retrieved.'
+          if (!el) return false;
+
+          const style = window.getComputedStyle(el);
+
+          return (
+            !el.disabled &&
+            style.display !== 'none' &&
+            style.visibility !== 'hidden'
+          );
+        },
+        {
+          timeout: 10000
+        },
+        selector
       );
-    }
 
-    // Wait until the element is actually usable.
-    await page.waitForFunction(
-      selector => {
-        const el = document.querySelector(selector);
+      const input = await page.$(selector);
 
-        if (!el) return false;
-
-        const style = window.getComputedStyle(el);
-
-        return (
-          !el.disabled &&
-          style.display !== 'none' &&
-          style.visibility !== 'hidden'
+      if (input) {
+        console.log(
+          `Found school input using selector: ${selector}`
         );
-      },
-      {
-        timeout
-      },
-      selector
-    );
 
-    return input;
+        return input;
+      }
 
-  } catch (err) {
-    throw new Error(
-      `Sparx school search input not found: ${err.message}`
-    );
+    } catch {}
   }
+
+  // Diagnostic information if Sparx changed the input.
+  const diagnostics = await page.evaluate(() => ({
+    url: location.href,
+    title: document.title,
+    readyState: document.readyState,
+
+    inputs: [...document.querySelectorAll('input')]
+      .map(el => ({
+        type: el.type,
+        placeholder: el.placeholder || '',
+        ariaLabel:
+          el.getAttribute('aria-label') || '',
+        name: el.name || '',
+        id: el.id || '',
+        disabled: el.disabled,
+        visible:
+          !!(
+            el.offsetWidth ||
+            el.offsetHeight ||
+            el.getClientRects().length
+          )
+      })),
+
+    bodyText:
+      document.body?.innerText?.slice(0, 1500) || ''
+  }));
+
+  console.log(
+    `School input diagnostic: ${JSON.stringify(diagnostics)}`
+  );
+
+  throw new Error(
+    'Sparx school search input not found after checking all known selectors.'
+  );
 }
 
 
@@ -547,64 +583,39 @@ async function getCookies(
       // Sparx can re-render the input.
       // --------------------------------------------------------
 
-      const schoolInput =
-  await findSchoolInput(
-    page,
-    30000
+      const schoolInput = await findSchoolInput(
+  page,
+  30000
+);
+
+addLog(
+  'Found Sparx school search input.'
+);
+
+const currentValue = await schoolInput.evaluate(
+  el => el.value || ''
+);
+
+if (!currentValue.trim()) {
+  await schoolInput.click({
+    clickCount: 3
+  });
+
+  await schoolInput.press('Backspace');
+
+  await schoolInput.type(
+    school,
+    {
+      delay: 25
+    }
   );
 
-      addLog(
-        'Found Sparx school search input.'
-      );
-
-
-      const schoolSelector =
-        'input[placeholder*="Start typing your school"]';
-
-      await page.waitForSelector(
-        schoolSelector,
-        {
-          visible: true,
-          timeout: 10000
-        }
-      );
-
-
-      const schoolInputValue =
-        await page.$eval(
-          schoolSelector,
-          el => el.value || ''
-        );
-
-
-      if (!schoolInputValue.trim()) {
-        await page.click(
-          schoolSelector,
-          {
-            clickCount: 3
-          }
-        );
-
-        await page.keyboard.press(
-          'Backspace'
-        );
-
-        await page.keyboard.type(
-          school,
-          {
-            delay: 25
-          }
-        );
-
-        addLog(
-          'Typed school name.'
-        );
-
-      } else {
-        addLog(
-          'School name already filled, skipping.'
-        );
-      }
+  addLog('Typed school name.');
+} else {
+  addLog(
+    'School name already filled, skipping.'
+  );
+}
 
 
       await selectSchoolResult(
