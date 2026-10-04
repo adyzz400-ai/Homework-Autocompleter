@@ -21,39 +21,59 @@ const delay = ms =>
 // ============================================================
 
 async function getTokenRequest(cookies, attempts = 3) {
-  try {
-    const requesticator =
-      new curlRequesticator(cookies);
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      console.log(
+        `[Sparx Token] Request attempt ${attempt}/${attempts}...`
+      );
 
-    const headers = [
-      'accept: */*',
-      'accept-language: en-GB,en;q=0.9',
-      'content-type: application/json',
-      'Referer: https://app.sparx-learning.com/'
-    ];
+      const requesticator = new curlRequesticator(cookies);
 
-    const response =
-      await requesticator._executeCurl(
-        'https://api.sparx-learning.com/token',
+      const headers = [
+        "accept: */*",
+        "accept-language: en-GB,en;q=0.9",
+        "content-type: application/json",
+        "Referer: https://app.sparx-learning.com/"
+      ];
+
+      const response = await requesticator._executeCurl(
+        "https://api.sparx-learning.com/token",
         headers
       );
 
-    return typeof response === 'string'
-      ? response.trim()
-      : JSON.stringify(response);
+      if (response === null || response === undefined) {
+        throw new Error("Empty response from Sparx token endpoint");
+      }
 
-  } catch {
-    if (attempts > 0) {
-      await delay(1500);
+      const token =
+        typeof response === "string"
+          ? response.trim()
+          : JSON.stringify(response);
 
-      return getTokenRequest(
-        cookies,
-        attempts - 1
+      if (!token) {
+        throw new Error("Sparx token response was empty");
+      }
+
+      console.log(
+        `[Sparx Token] Token response received (${token.length} chars)`
       );
-    }
 
-    return null;
+      return token;
+
+    } catch (error) {
+      console.error(
+        `[Sparx Token] Attempt ${attempt} failed: ${error.message}`
+      );
+
+      if (attempt < attempts) {
+        console.log("[Sparx Token] Retrying in 1.5 seconds...");
+        await delay(1500);
+      }
+    }
   }
+
+  console.error("[Sparx Token] All token request attempts failed.");
+  return null;
 }
 
 
