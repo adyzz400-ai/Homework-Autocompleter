@@ -778,20 +778,59 @@ addLog(
   'Waiting for Sparx page JavaScript to finish settling...'
 );
 
-await delay(3000);
+await delay(1000);
 
 addLog(
-  'Clicking Continue using Puppeteer mouse input...'
+  'Clicking Continue and waiting for navigation...'
 );
 
-await continueButton.click();
+const oldUrl = page.url();
+
+await Promise.all([
+  page.waitForNavigation({
+    waitUntil: 'domcontentloaded',
+    timeout: 15000
+  }).catch(() => null),
+
+  continueButton.click()
+]);
+
+await delay(1000);
+
+const newUrl = page.url();
 
 addLog(
-  'Continue click sent.'
+  `URL before Continue: ${oldUrl}`
 );
 
-// Give the client-side application time to react.
-await delay(3000);
+addLog(
+  `URL after Continue: ${newUrl}`
+);
+
+if (
+  newUrl.includes(
+    'selectschool.sparx-learning.com'
+  )
+) {
+  throw new Error(
+    'Continue was clicked, but Sparx remained on the school-selection page.'
+  );
+}
+
+addLog(
+  'Sparx left the school-selection page.'
+);
+
+await page.waitForFunction(
+  () => document.readyState !== 'loading',
+  {
+    timeout: 10000
+  }
+).catch(() => {});
+
+addLog(
+  `Destination page ready: ${page.url()}`
+);
 
 addLog(
   `Post-click URL: ${page.url()}`
@@ -801,31 +840,6 @@ addLog(
   `Post-click title: ${await page.title()}`
 );
 
-const postClickState = await page.evaluate(() => ({
-  url: location.href,
-
-  buttons: [...document.querySelectorAll('button')]
-    .filter(el => el.offsetParent !== null)
-    .map(el => ({
-      text: el.innerText?.trim(),
-      disabled: el.disabled
-    })),
-
-  inputs: [...document.querySelectorAll('input')]
-    .filter(el => el.offsetParent !== null)
-    .map(el => ({
-      type: el.type,
-      placeholder: el.placeholder,
-      value: el.value
-    })),
-
-  bodyText:
-    document.body?.innerText?.slice(0, 2000) || ''
-}));
-
-addLog(
-  `Post-click state: ${JSON.stringify(postClickState)}`
-);
 
 if (
   page.url().includes(
