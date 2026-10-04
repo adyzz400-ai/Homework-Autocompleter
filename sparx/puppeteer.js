@@ -724,13 +724,29 @@ page.on('console', msg => {
   }
 });
 
-const continueButton = await page.waitForSelector(
-  'button',
-  {
-    visible: true,
-    timeout: 15000
+const continueButtons =
+  await page.$$('button');
+
+let continueButton = null;
+
+for (const button of continueButtons) {
+  const text = await button.evaluate(
+    el => el.innerText?.trim()
+  );
+
+  if (
+    text?.toLowerCase() === 'continue'
+  ) {
+    continueButton = button;
+    break;
   }
-);
+}
+
+if (!continueButton) {
+  throw new Error(
+    'Continue button was not found.'
+  );
+}
 
 const continueState = await continueButton.evaluate(el => ({
   text: el.innerText?.trim(),
