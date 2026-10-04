@@ -497,22 +497,6 @@ async function getCookies(
 // NEVER logs cookies, tokens, passwords or request bodies.
 // --------------------------------------------------------
 
-page.on('request', request => {
-  const url = request.url();
-
-  if (
-    url.includes('api.sparx-learning.com') &&
-    (
-      request.method() === 'POST' ||
-      request.method() === 'GET'
-    )
-  ) {
-    addLog(
-      `[SPARX REQUEST] ${request.method()} ${url}`
-    );
-  }
-});
-
 page.on('response', async response => {
     const url = response.url();
 
@@ -522,52 +506,54 @@ page.on('response', async response => {
         )
     ) {
         try {
-            const headers = response.headers();
-            const contentType =
-                headers['content-type'] || 'unknown';
-
             const body = await response.buffer();
-
-            const firstBytes =
-                body
-                    .subarray(0, 32)
-                    .toString('hex');
 
             addLog(
                 `[Sparx Packages] status=${response.status()}`
             );
 
             addLog(
-                `[Sparx Packages] content-type=${contentType}`
+                `[Sparx Packages] content-type=${
+                    response.headers()['content-type'] || 'unknown'
+                }`
             );
 
             addLog(
                 `[Sparx Packages] response-size=${body.length}`
             );
 
-            addLog(
-                `[Sparx Packages] first-bytes=${firstBytes}`
-            );
+            let payload = body;
 
-            // If it happens to be JSON, show only its top-level keys.
-            if (
-                contentType.includes('json')
-            ) {
-                try {
-                    const json =
-                        JSON.parse(body.toString('utf8'));
+            if (body.length >= 5) {
+                const messageLength =
+                    body.readUInt32BE(1);
 
-                    addLog(
-                        `[Sparx Packages] JSON keys=${JSON.stringify(
-                            Object.keys(json)
-                        )}`
-                    );
-                } catch {
-                    addLog(
-                        '[Sparx Packages] Response was not valid JSON.'
-                    );
+                if (
+                    messageLength <=
+                    body.length - 5
+                ) {
+                    payload =
+                        body.subarray(
+                            5,
+                            5 + messageLength
+                        );
                 }
             }
+
+            const text =
+                payload.toString('utf8');
+
+            const strings =
+                text.match(/[ -~]{4,}/g) || [];
+
+            const uniqueStrings =
+                [...new Set(strings)].slice(0, 80);
+
+            addLog(
+                `[Sparx Packages] printable-fields=${JSON.stringify(
+                    uniqueStrings
+                )}`
+            );
 
         } catch (error) {
             addLog(
