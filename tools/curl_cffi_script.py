@@ -1,7 +1,9 @@
 import sys
 import json
 import base64
+
 from curl_cffi import requests as cffi_requests
+
 
 REQUEST_TIMEOUT = 15
 
@@ -42,7 +44,10 @@ def make_request(request_data):
         request_kwargs = {
             "headers": headers,
             "cookies": cookies,
-            "impersonate": "chrome124",
+
+            # Use curl_cffi's Chrome fingerprint.
+            "impersonate": "chrome",
+
             "timeout": REQUEST_TIMEOUT
         }
 
@@ -73,7 +78,10 @@ def make_request(request_data):
 
         print(
             json.dumps({
-                "debug": f"Request finished with HTTP {response.status_code}"
+                "debug": (
+                    f"Request finished with HTTP "
+                    f"{response.status_code}"
+                )
             }),
             file=sys.stderr
         )
@@ -99,6 +107,7 @@ def make_request(request_data):
 if __name__ == "__main__":
 
     if len(sys.argv) > 1:
+
         try:
             input_arg = sys.argv[1]
 
@@ -109,19 +118,25 @@ if __name__ == "__main__":
                 request_json = input_arg
 
             request_data = json.loads(request_json)
+
             make_request(request_data)
 
         except Exception as e:
+
             print(
                 json.dumps({
                     "error": f"Invalid input: {str(e)}"
                 })
             )
+
             sys.stdout.flush()
+
             sys.exit(1)
 
     else:
+
         while True:
+
             try:
                 line = sys.stdin.readline()
 
@@ -134,33 +149,42 @@ if __name__ == "__main__":
                     continue
 
                 try:
+
                     request_data = json.loads(line)
+
                     make_request(request_data)
 
                 except json.JSONDecodeError:
+
                     print(
                         json.dumps({
                             "error": "Invalid JSON input"
                         })
                     )
+
                     sys.stdout.flush()
 
                 except Exception as e:
+
                     print(
                         json.dumps({
                             "error": f"Processing error: {str(e)}"
                         })
                     )
+
                     sys.stdout.flush()
 
             except KeyboardInterrupt:
                 break
 
             except Exception as e:
+
                 print(
                     json.dumps({
                         "error": f"Worker error: {str(e)}"
                     })
                 )
+
                 sys.stdout.flush()
+
                 break
