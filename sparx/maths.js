@@ -202,19 +202,44 @@ class SparxMaths extends SparxBase {
     }
 
     async getClientSession() {
-        const responseBuffer = await getClientSession(this.curlRequests);
-        // console.log(responseBuffer);
-        const response = await this.decodeStuff(responseBuffer, "ClientSessionResponse");
-        // console.log(response.sessionId);
-        this.sessionId = response.sessionId;
-        this.curlRequests.headers = this.curlRequests.headers.map(header =>
-            header.startsWith('x-session-id:')
-                ? `x-session-id: ${this.sessionId}`
-                : header
+    const responseBuffer =
+        await getClientSession(this.curlRequests);
+
+    const response =
+        await this.decodeStuff(
+            responseBuffer,
+            "ClientSessionResponse"
         );
 
-        return response.sessionId;
+    if (!response || !response.sessionId) {
+        throw new Error(
+            "Sparx ClientSession did not return a session ID."
+        );
     }
+
+    this.sessionId =
+        response.sessionId;
+
+    // Remove any previous session ID.
+    this.curlRequests.headers =
+        this.curlRequests.headers.filter(
+            header =>
+                !header
+                    .toLowerCase()
+                    .startsWith("x-session-id:")
+        );
+
+    // Add the CURRENT session ID.
+    this.curlRequests.headers.push(
+        `x-session-id: ${this.sessionId}`
+    );
+
+    console.log(
+        "[Sparx ClientSession] Session ID installed."
+    );
+
+    return this.sessionId;
+}
 
 
     async answerQuestion(inputObject) {
