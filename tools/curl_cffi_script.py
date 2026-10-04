@@ -114,7 +114,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(
                 json.dumps({
-                    "error": f"Invalid input: {e}"
+                    "error": f"Invalid input: {str(e)}"
                 })
             )
             sys.stdout.flush()
