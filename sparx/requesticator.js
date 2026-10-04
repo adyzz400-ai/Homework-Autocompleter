@@ -9,20 +9,15 @@ class Sparx_Requesticator extends curlRequesticator {
         this.headers = [
             'accept: */*',
             'accept-language: en-GB,en;q=0.9,en-US;q=0.8',
-
-            // Keep the token exactly as returned by Sparx.
             `authorization: ${authToken}`,
-
             'content-type: application/grpc-web+proto',
 
-            // Origin must not have a trailing slash.
             'origin: https://maths.sparx-learning.com',
+            'referer: https://maths.sparx-learning.com/',
 
             'priority: u=1, i',
 
-            'referer: https://maths.sparx-learning.com/',
-
-            'sec-ch-ua: "Not(A:Brand";v="8", "Chromium";v="144", "Microsoft Edge";v="144"',
+            'sec-ch-ua: "Not(A:Brand";v="8", "Chromium";v="144"',
             'sec-ch-ua-mobile: ?0',
             'sec-ch-ua-platform: "Windows"',
 
@@ -30,7 +25,8 @@ class Sparx_Requesticator extends curlRequesticator {
             'sec-fetch-mode: cors',
             'sec-fetch-site: same-site',
 
-            'user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0',
+            // Chrome 144 — matches the browser fingerprint we are trying to use
+            'user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
 
             'x-grpc-web: 1',
             'x-server-offset: -2'
