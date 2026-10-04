@@ -592,30 +592,64 @@ addLog(
   'Found Sparx school search input.'
 );
 
-const currentValue = await schoolInput.evaluate(
-  el => el.value || ''
+addLog(
+  'About to inspect school input...'
 );
 
-if (!currentValue.trim()) {
-  await schoolInput.click({
-    clickCount: 3
-  });
+const schoolInputInfo =
+  await schoolInput.evaluate(el => ({
+    value: el.value || '',
+    placeholder: el.placeholder || '',
+    disabled: el.disabled,
+    visible: !!(
+      el.offsetWidth ||
+      el.offsetHeight ||
+      el.getClientRects().length
+    )
+  }));
 
-  await schoolInput.press('Backspace');
+addLog(
+  `School input state: ${JSON.stringify(schoolInputInfo)}`
+);
 
-  await schoolInput.type(
-    school,
-    {
-      delay: 25
-    }
-  );
+addLog(
+  'About to type school name...'
+);
 
-  addLog('Typed school name.');
-} else {
-  addLog(
-    'School name already filled, skipping.'
-  );
-}
+await schoolInput.click({
+  clickCount: 3
+});
+
+await schoolInput.press(
+  'Backspace'
+);
+
+await schoolInput.type(
+  school,
+  {
+    delay: 25
+  }
+);
+
+addLog(
+  `School name typed: ${school}`
+);
+
+await delay(1000);
+
+addLog(
+  'Waiting for school results...'
+);
+
+await selectSchoolResult(
+  page,
+  school,
+  30000
+);
+
+addLog(
+  'School result selected.'
+);
 
 
       await selectSchoolResult(
