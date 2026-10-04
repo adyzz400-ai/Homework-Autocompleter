@@ -1225,13 +1225,20 @@ async function getTokenSparx(
   }
 
 
-  const token =
-    await getTokenRequest(
-      cookiesString
-    );
+  console.log('Starting Sparx token request...');
 
+const token =
+  await getTokenRequest(
+    cookiesString
+  );
 
-  console.log(token);
+console.log(
+  `Sparx token response received: ${
+    token
+      ? `length=${String(token).length}`
+      : 'NULL'
+  }`
+);
 
 
   return {
