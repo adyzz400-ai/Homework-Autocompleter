@@ -553,18 +553,9 @@ async function getCookies(
       // Screencast
       // --------------------------------------------------------
 
-      if (page.screencast) {
-        recorder =
-          await page.screencast({
-            path: vid_path
-          }).catch(() => null);
-
-        if (recorder) {
-          addLog(
-            `Screencast started -> ${vid_path}`
-          );
-        }
-      }
+      // Screencast disabled to reduce Render memory usage.
+recorder = null;
+addLog('Screencast disabled.');
 
 
       // --------------------------------------------------------
