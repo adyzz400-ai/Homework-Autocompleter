@@ -1,11 +1,8 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-const fs = require('fs');
-const { exec } = require('child_process');
-const util = require('util');
-const execAsync = util.promisify(exec);
-require('dotenv').config();
 const { execSync } = require('child_process');
+
+require('dotenv').config();
 
 const smartLogin = require('../utils/smartLogin');
 const curlRequesticator = require('../utils/curlRequesticator');
@@ -27,35 +24,48 @@ async function getTokenRequest(cookies, attempts = 3) {
         `[Sparx Token] Request attempt ${attempt}/${attempts}...`
       );
 
-      const requesticator = new curlRequesticator(cookies);
+      const requesticator =
+        new curlRequesticator(cookies);
 
       const headers = [
-        "accept: */*",
-        "accept-language: en-GB,en;q=0.9",
-        "content-type: application/json",
-        "Referer: https://app.sparx-learning.com/"
+        'accept: */*',
+        'accept-language: en-GB,en;q=0.9',
+        'content-type: application/json',
+        'Referer: https://app.sparx-learning.com/'
       ];
 
-      const response = await requesticator._executeCurl(
-        "https://api.sparx-learning.com/token",
-        headers
-      );
+      const response =
+        await requesticator._executeCurl(
+          'https://api.sparx-learning.com/token',
+          headers
+        );
 
-      if (response === null || response === undefined) {
-        throw new Error("Empty response from Sparx token endpoint");
+      if (
+        response === null ||
+        response === undefined
+      ) {
+        throw new Error(
+          'Empty response from Sparx token endpoint'
+        );
       }
 
       let token;
 
-      if (typeof response === "string") {
-        const trimmed = response.trim();
+      if (typeof response === 'string') {
+        const trimmed =
+          response.trim();
 
         try {
-          const parsed = JSON.parse(trimmed);
+          const parsed =
+            JSON.parse(trimmed);
 
-          if (typeof parsed === "string") {
-            token = parsed.trim();
-          } else if (parsed && typeof parsed === "object") {
+          if (typeof parsed === 'string') {
+            token =
+              parsed.trim();
+          } else if (
+            parsed &&
+            typeof parsed === 'object'
+          ) {
             token =
               parsed.token ||
               parsed.access_token ||
@@ -65,7 +75,9 @@ async function getTokenRequest(cookies, attempts = 3) {
         } catch {
           token = trimmed;
         }
-      } else if (typeof response === "object") {
+      } else if (
+        typeof response === 'object'
+      ) {
         token =
           response.token ||
           response.access_token ||
@@ -73,13 +85,17 @@ async function getTokenRequest(cookies, attempts = 3) {
           response.accessToken;
       }
 
-      if (!token || typeof token !== "string") {
+      if (
+        !token ||
+        typeof token !== 'string'
+      ) {
         throw new Error(
-          "Could not extract a token from the Sparx token response"
+          'Could not extract a token from the Sparx token response'
         );
       }
 
-      token = token.trim();
+      token =
+        token.trim();
 
       console.log(
         `[Sparx Token] Token extracted successfully (${token.length} chars)`
@@ -92,40 +108,14 @@ async function getTokenRequest(cookies, attempts = 3) {
         `[Sparx Token] Attempt ${attempt} failed: ${error.message}`
       );
 
-      if (attempt >= attempts) {
+      if (
+        attempt >= attempts
+      ) {
         throw error;
       }
 
       await delay(1000);
     }
-  }
-}
-
-
-// ============================================================
-// VIDEO CONVERTER
-// ============================================================
-
-async function convertWebmToMp4(vid_path) {
-  try {
-    const mp4Path =
-      vid_path.replace('.webm', '.mp4');
-
-    await execAsync(
-      `ffmpeg -i "${vid_path}" -c:v libx264 -preset ultrafast -movflags faststart "${mp4Path}"`
-    );
-
-    fs.unlinkSync(vid_path);
-
-    return mp4Path;
-
-  } catch (err) {
-    console.log(
-      'Video conversion failed:',
-      err.message
-    );
-
-    return vid_path;
   }
 }
 
@@ -203,7 +193,8 @@ async function clickButtonWithText(
   text,
   timeout = 15000
 ) {
-  const start = Date.now();
+  const start =
+    Date.now();
 
   while (
     Date.now() - start <
@@ -267,7 +258,10 @@ async function clickButtonWithText(
 // FIND SCHOOL INPUT
 // ============================================================
 
-async function findSchoolInput(page, timeout = 30000) {
+async function findSchoolInput(
+  page,
+  timeout = 30000
+) {
   const selectors = [
     'input[placeholder*="Start typing your school" i]',
     'input[placeholder*="school" i]',
@@ -275,20 +269,33 @@ async function findSchoolInput(page, timeout = 30000) {
     'input[name*="school" i]'
   ];
 
-  for (const selector of selectors) {
+  for (
+    const selector of selectors
+  ) {
     try {
-      await page.waitForSelector(selector, {
-        timeout: 10000,
-        visible: false
-      });
+      await page.waitForSelector(
+        selector,
+        {
+          timeout: 10000,
+          visible: false
+        }
+      );
 
       await page.waitForFunction(
         selector => {
-          const el = document.querySelector(selector);
+          const el =
+            document.querySelector(
+              selector
+            );
 
-          if (!el) return false;
+          if (!el) {
+            return false;
+          }
 
-          const style = window.getComputedStyle(el);
+          const style =
+            window.getComputedStyle(
+              el
+            );
 
           return (
             !el.disabled &&
@@ -302,7 +309,8 @@ async function findSchoolInput(page, timeout = 30000) {
         selector
       );
 
-      const input = await page.$(selector);
+      const input =
+        await page.$(selector);
 
       if (input) {
         console.log(
@@ -315,32 +323,41 @@ async function findSchoolInput(page, timeout = 30000) {
     } catch {}
   }
 
-  // Diagnostic information if Sparx changed the input.
-  const diagnostics = await page.evaluate(() => ({
-    url: location.href,
-    title: document.title,
-    readyState: document.readyState,
+  const diagnostics =
+    await page.evaluate(() => ({
+      url: location.href,
+      title: document.title,
+      readyState:
+        document.readyState,
 
-    inputs: [...document.querySelectorAll('input')]
-      .map(el => ({
-        type: el.type,
-        placeholder: el.placeholder || '',
-        ariaLabel:
-          el.getAttribute('aria-label') || '',
-        name: el.name || '',
-        id: el.id || '',
-        disabled: el.disabled,
-        visible:
-          !!(
-            el.offsetWidth ||
-            el.offsetHeight ||
-            el.getClientRects().length
-          )
-      })),
+      inputs:
+        [...document.querySelectorAll('input')]
+          .map(el => ({
+            type: el.type,
+            placeholder:
+              el.placeholder || '',
+            ariaLabel:
+              el.getAttribute(
+                'aria-label'
+              ) || '',
+            name:
+              el.name || '',
+            id:
+              el.id || '',
+            disabled:
+              el.disabled,
+            visible:
+              !!(
+                el.offsetWidth ||
+                el.offsetHeight ||
+                el.getClientRects().length
+              )
+          })),
 
-    bodyText:
-      document.body?.innerText?.slice(0, 1500) || ''
-  }));
+      bodyText:
+        document.body?.innerText
+          ?.slice(0, 1500) || ''
+    }));
 
   console.log(
     `School input diagnostic: ${JSON.stringify(diagnostics)}`
@@ -356,31 +373,50 @@ async function findSchoolInput(page, timeout = 30000) {
 // SELECT SCHOOL RESULT
 // ============================================================
 
-async function selectSchoolResult(page, school, timeout = 15000) {
-  const start = Date.now();
+async function selectSchoolResult(
+  page,
+  school,
+  timeout = 15000
+) {
+  const start =
+    Date.now();
 
-  while (Date.now() - start < timeout) {
+  while (
+    Date.now() - start <
+    timeout
+  ) {
     try {
-      const result = await page.$(
-        'div[class*="SchoolResult_"]'
-      );
+      const result =
+        await page.$(
+          'div[class*="SchoolResult_"]'
+        );
 
       if (!result) {
         await delay(200);
         continue;
       }
 
-      const details = await result.evaluate(el => ({
-        text: el.innerText?.trim() || '',
-        className: el.className,
-        visible: el.offsetParent !== null
-      }));
+      const details =
+        await result.evaluate(
+          el => ({
+            text:
+              el.innerText?.trim() || '',
+            className:
+              el.className,
+            visible:
+              el.offsetParent !== null
+          })
+        );
 
       if (
         !details.visible ||
         !details.text
           .toLowerCase()
-          .includes(school.trim().toLowerCase())
+          .includes(
+            school
+              .trim()
+              .toLowerCase()
+          )
       ) {
         await delay(200);
         continue;
@@ -396,7 +432,7 @@ async function selectSchoolResult(page, school, timeout = 15000) {
 
       return true;
 
-    } catch (err) {
+    } catch {
       await delay(200);
     }
   }
@@ -432,908 +468,996 @@ async function getCookies(
     );
 
     try {
-      execSync(
-        'rm -rf /tmp/puppeteer_*',
-        {
-          stdio: 'ignore'
-        }
-      );
-
-      addLog(
-        'Cache cleared.'
-      );
-
-    } catch (err) {
-      addLog(
-        `Cache clear failed: ${err.message}`
-      );
-    }
-
-    let schoolStatus = false;
-    let loginTypeStatus = false;
-    let emailTypeStatus = false;
-    let passTypeStatus = false;
-
-    let smartLoginVar = {
-      filledEmail: false,
-      filledPassword: false
-    };
-
-    let browser;
-    let page;
-    let recorder = null;
-
-    let vid_path =
-      `videos/recording-${Date.now()}.webm`;
-
-    try {
-      browser =
-        await puppeteer.launch({
-          headless: true,
-
-          args: [
-            '--start-maximized',
-            '--no-first-run',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-background-timer-throttling',
-            '--disable-backgrounding-occluded-windows',
-            '--ignore-certificate-errors',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--ignore-certificate-errors-spki-list'
-          ]
-        });
-
-      page =
-        await browser.newPage();
-
-      addLog(
-        'Browser launched and new page created.'
-      );
-// --------------------------------------------------------
-// TEMPORARY SPARX NETWORK DIAGNOSTIC
-// Logs only request/response URLs and status.
-// NEVER logs cookies, tokens, passwords or request bodies.
-// --------------------------------------------------------
-
-page.on('response', async response => {
-    const url = response.url();
-
-    if (
-        url.includes(
-            '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
-        )
-    ) {
-        try {
-            const body = await response.buffer();
-
-            addLog(
-                `[Sparx Packages] status=${response.status()}`
-            );
-
-            addLog(
-                `[Sparx Packages] content-type=${
-                    response.headers()['content-type'] || 'unknown'
-                }`
-            );
-
-            addLog(
-                `[Sparx Packages] response-size=${body.length}`
-            );
-
-            let payload = body;
-
-            if (body.length >= 5) {
-                const messageLength =
-                    body.readUInt32BE(1);
-
-                if (
-                    messageLength <=
-                    body.length - 5
-                ) {
-                    payload =
-                        body.subarray(
-                            5,
-                            5 + messageLength
-                        );
-                }
-            }
-
-            const text =
-                payload.toString('utf8');
-
-            const strings =
-                text.match(/[ -~]{4,}/g) || [];
-
-            const uniqueStrings =
-                [...new Set(strings)].slice(0, 80);
-
-            addLog(
-                `[Sparx Packages] printable-fields=${JSON.stringify(
-                    uniqueStrings
-                )}`
-            );
-
-        } catch (error) {
-            addLog(
-                `[Sparx Packages] diagnostic error: ${error.message}`
-            );
-        }
-    }
-});
-
-      // --------------------------------------------------------
-      // Existing page setup
-      // --------------------------------------------------------
-
-      await page.evaluateOnNewDocument(() => {
-        Object.defineProperty(
-          navigator,
-          'webdriver',
+      try {
+        execSync(
+          'rm -rf /tmp/puppeteer_*',
           {
-            get: () => false
+            stdio: 'ignore'
           }
         );
 
-        Object.defineProperty(
-          navigator,
-          'plugins',
-          {
-            get: () => [1, 2, 3, 4, 5]
-          }
+        addLog(
+          'Cache cleared.'
         );
 
-        Object.defineProperty(
-          navigator,
-          'languages',
-          {
-            get: () => [
-              'en-US',
-              'en'
-            ]
-          }
+      } catch (err) {
+        addLog(
+          `Cache clear failed: ${err.message}`
         );
+      }
 
-        window.chrome = {
-          runtime: {}
-        };
+      let schoolStatus =
+        false;
 
-        const originalQuery =
-          window.navigator.permissions.query;
+      let loginTypeStatus =
+        false;
 
-        window.navigator.permissions.query =
-          parameters =>
-            parameters.name ===
-            'notifications'
-              ? Promise.resolve({
-                  state:
-                    Notification.permission
-                })
-              : originalQuery(parameters);
+      let emailTypeStatus =
+        false;
 
-        Object.defineProperty(
-          navigator,
-          'platform',
-          {
-            get: () => 'Win32'
-          }
-        );
-      });
+      let passTypeStatus =
+        false;
 
+      let smartLoginVar = {
+        filledEmail: false,
+        filledPassword: false
+      };
 
-      const userAgents = [
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.3537.71',
-
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-
-        'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-
-        'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0'
-      ];
-
-      await page.setUserAgent(
-        userAgents[
-          Math.floor(
-            Math.random() *
-            userAgents.length
-          )
-        ]
-      );
-
-
-      // --------------------------------------------------------
-      // Screencast
-      // --------------------------------------------------------
-
-      // Screencast disabled to reduce Render memory usage.
-recorder = null;
-addLog('Screencast disabled.');
-
-
-      // --------------------------------------------------------
-      // SCHOOL PAGE
-      // --------------------------------------------------------
-
-      await page.goto(
-        `https://selectschool.sparx-learning.com/?app=sparx_${app}`,
-        {
-          waitUntil:
-            'domcontentloaded',
-          timeout: 30000
-        }
-      );
-
-      addLog(
-        'Navigated to select school page.'
-      );
-
-
-      await page.evaluate(() => {
-        const el =
-          document.getElementById(
-            'cookiescript_injected_wrapper'
-          );
-
-        if (el) {
-          el.remove();
-        }
-      }).catch(() => {});
-
-
-      // --------------------------------------------------------
-      // IMPORTANT FIX:
-      // Don't keep the original ElementHandle.
-      // Sparx can re-render the input.
-      // --------------------------------------------------------
-
-      const schoolInput = await findSchoolInput(
-  page,
-  30000
-);
-
-addLog(
-  'Found Sparx school search input.'
-);
-
-addLog(
-  'About to inspect school input...'
-);
-
-const schoolInputInfo =
-  await schoolInput.evaluate(el => ({
-    value: el.value || '',
-    placeholder: el.placeholder || '',
-    disabled: el.disabled,
-    visible: !!(
-      el.offsetWidth ||
-      el.offsetHeight ||
-      el.getClientRects().length
-    )
-  }));
-
-addLog(
-  `School input state: ${JSON.stringify(schoolInputInfo)}`
-);
-
-addLog(
-  'About to type school name...'
-);
-
-await schoolInput.click({
-  clickCount: 3
-});
-
-await schoolInput.press(
-  'Backspace'
-);
-
-await schoolInput.type(
-  school,
-  {
-    delay: 25
-  }
-);
-
-addLog(
-  `School name typed: ${school}`
-);
-
-await delay(1000);
-
-addLog(
-  'Waiting for school results...'
-);
-
-await selectSchoolResult(
-  page,
-  school,
-  30000
-);
-
-addLog(
-  'School result selected.'
-);
-
-
-const selectedSchoolDiagnostic = await page.evaluate(() => {
-  const elements = [...document.querySelectorAll('*')];
-
-  return elements
-    .filter(el => {
-      const text = el.innerText?.trim() || '';
-
-      return (
-        text === 'Heston Community School' ||
-        text.startsWith('Heston Community School')
-      );
-    })
-    .slice(0, 10)
-    .map(el => ({
-      tag: el.tagName,
-      text: el.innerText?.trim(),
-      role: el.getAttribute('role'),
-      ariaSelected: el.getAttribute('aria-selected'),
-      className: el.className,
-      disabled: el.disabled ?? null
-    }));
-});
-
-addLog(
-  `Selected school diagnostic: ${JSON.stringify(selectedSchoolDiagnostic)}`
-);
-
-const schoolState = await page.evaluate(() => {
-  const input = document.querySelector(
-    'input[placeholder*="Start typing your school"]'
-  );
-
-  const buttons = [...document.querySelectorAll('button')];
-
-  const continueButton = buttons.find(
-    b => b.innerText?.trim() === 'Continue'
-  );
-
-  return {
-    inputValue: input?.value || '',
-    continueDisabled: continueButton?.disabled ?? null,
-    continueAriaDisabled:
-      continueButton?.getAttribute('aria-disabled') || null
-  };
-});
-
-addLog(
-  `School selection state: ${JSON.stringify(schoolState)}`
-);
-
-// Your existing Continue-button code comes after this
-
-      schoolStatus = true;
-
-
-      // --------------------------------------------------------
-      // CONTINUE BUTTON DIAGNOSTIC
-      // --------------------------------------------------------
-
-addLog('Preparing to click Continue...');
-
-// Capture JavaScript errors from the Sparx page.
-page.on('pageerror', err => {
-  addLog(`PAGE ERROR: ${err.message}`);
-});
-
-page.on('console', msg => {
-  if (msg.type() === 'error') {
-    addLog(`BROWSER CONSOLE ERROR: ${msg.text()}`);
-  }
-});
-
-const continueButtons =
-  await page.$$('button');
-
-let continueButton = null;
-
-for (const button of continueButtons) {
-  const text = await button.evaluate(
-    el => el.innerText?.trim()
-  );
-
-  if (
-    text?.toLowerCase() === 'continue'
-  ) {
-    continueButton = button;
-    break;
-  }
-}
-
-if (!continueButton) {
-  throw new Error(
-    'Continue button was not found.'
-  );
-}
-
-const continueState = await continueButton.evaluate(el => ({
-  text: el.innerText?.trim(),
-  disabled: el.disabled,
-  type: el.getAttribute('type'),
-  className: el.className,
-  outerHTML: el.outerHTML,
-  formAction: el.form?.action || null,
-  formMethod: el.form?.method || null
-}));
-
-addLog(
-  `Continue state: ${JSON.stringify(continueState)}`
-);
-
-if (continueState.text !== 'Continue') {
-  throw new Error(
-    `Expected Continue button, found "${continueState.text}".`
-  );
-}
-
-if (continueState.disabled) {
-  throw new Error(
-    'Continue button is disabled.'
-  );
-}
-
-addLog(
-  'Waiting for Sparx page JavaScript to finish settling...'
-);
-
-await delay(1000);
-
-addLog(
-  'Clicking Continue and waiting for navigation...'
-);
-
-const oldUrl = page.url();
-
-await Promise.all([
-  page.waitForNavigation({
-    waitUntil: 'domcontentloaded',
-    timeout: 15000
-  }).catch(() => null),
-
-  continueButton.click()
-]);
-
-await delay(1000);
-
-const newUrl = page.url();
-
-addLog(
-  `URL before Continue: ${oldUrl}`
-);
-
-addLog(
-  `URL after Continue: ${newUrl}`
-);
-
-if (
-  newUrl.includes(
-    'selectschool.sparx-learning.com'
-  )
-) {
-  throw new Error(
-    'Continue was clicked, but Sparx remained on the school-selection page.'
-  );
-}
-
-addLog(
-  'Sparx left the school-selection page.'
-);
-
-await page.waitForFunction(
-  () => document.readyState !== 'loading',
-  {
-    timeout: 10000
-  }
-).catch(() => {});
-
-addLog(
-  `Destination page ready: ${page.url()}`
-);
-
-addLog(
-  `Post-click URL: ${page.url()}`
-);
-
-addLog(
-  `Post-click title: ${await page.title()}`
-);
-
-
-if (
-  page.url().includes(
-    'selectschool.sparx-learning.com'
-  )
-) {
-  throw new Error(
-    'Continue was clicked, but Sparx remained on the school-selection page.'
-  );
-}
-
-addLog(
-  'Sparx left the school-selection page.'
-);
-
-      // --------------------------------------------------------
-      // COOKIE POPUP
-      // --------------------------------------------------------
+      let browser;
+      let page;
 
       try {
-        await page.waitForSelector(
-          '#cookiescript_injected_wrapper',
-          {
-            timeout: 5000
+        browser =
+          await puppeteer.launch({
+            headless: true,
+
+            args: [
+              '--start-maximized',
+              '--no-first-run',
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-background-timer-throttling',
+              '--disable-backgrounding-occluded-windows',
+              '--ignore-certificate-errors',
+              '--disable-blink-features=AutomationControlled',
+              '--disable-features=IsolateOrigins,site-per-process',
+              '--ignore-certificate-errors-spki-list'
+            ]
+          });
+
+        page =
+          await browser.newPage();
+
+        addLog(
+          'Browser launched and new page created.'
+        );
+
+
+        // ======================================================
+        // REAL SPARX PACKAGE REQUEST DIAGNOSTIC
+        //
+        // IMPORTANT:
+        // We DO NOT navigate to maths.sparx-learning.com here.
+        //
+        // The normal authenticated navigation is allowed to
+        // trigger ListStudentPackages itself.
+        // ======================================================
+
+        page.on(
+          'response',
+          async response => {
+            const url =
+              response.url();
+
+            if (
+              url.includes(
+                '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
+              )
+            ) {
+              try {
+                const body =
+                  await response.buffer();
+
+                addLog(
+                  `[Sparx Packages] status=${response.status()}`
+                );
+
+                addLog(
+                  `[Sparx Packages] content-type=${
+                    response.headers()[
+                      'content-type'
+                    ] || 'unknown'
+                  }`
+                );
+
+                addLog(
+                  `[Sparx Packages] response-size=${body.length}`
+                );
+
+                let payload =
+                  body;
+
+                // gRPC-Web response:
+                // 1 byte flag + 4 byte message length
+                if (
+                  body.length >= 5
+                ) {
+                  const messageLength =
+                    body.readUInt32BE(
+                      1
+                    );
+
+                  if (
+                    messageLength <=
+                    body.length - 5
+                  ) {
+                    payload =
+                      body.subarray(
+                        5,
+                        5 + messageLength
+                      );
+                  }
+                }
+
+                const text =
+                  payload.toString(
+                    'utf8'
+                  );
+
+                const strings =
+                  text.match(
+                    /[ -~]{4,}/g
+                  ) || [];
+
+                const uniqueStrings =
+                  [
+                    ...new Set(
+                      strings
+                    )
+                  ].slice(
+                    0,
+                    80
+                  );
+
+                addLog(
+                  `[Sparx Packages] printable-fields=${JSON.stringify(
+                    uniqueStrings
+                  )}`
+                );
+
+              } catch (error) {
+                addLog(
+                  `[Sparx Packages] diagnostic error: ${error.message}`
+                );
+              }
+            }
           }
         );
 
-        await page.evaluate(() => {
-          const el =
-            document.getElementById(
-              'cookiescript_injected_wrapper'
+
+        // ======================================================
+        // PAGE ERROR DIAGNOSTICS
+        // ======================================================
+
+        page.on(
+          'pageerror',
+          error => {
+            addLog(
+              `PAGE ERROR: ${error.message}`
+            );
+          }
+        );
+
+        page.on(
+          'console',
+          msg => {
+            if (
+              msg.type() ===
+              'error'
+            ) {
+              addLog(
+                `BROWSER CONSOLE ERROR: ${msg.text()}`
+              );
+            }
+          }
+        );
+
+
+        // ======================================================
+        // BROWSER FINGERPRINT SETUP
+        // ======================================================
+
+        await page.evaluateOnNewDocument(
+          () => {
+            Object.defineProperty(
+              navigator,
+              'webdriver',
+              {
+                get: () => false
+              }
             );
 
-          if (el) {
-            el.remove();
+            Object.defineProperty(
+              navigator,
+              'plugins',
+              {
+                get: () => [
+                  1,
+                  2,
+                  3,
+                  4,
+                  5
+                ]
+              }
+            );
+
+            Object.defineProperty(
+              navigator,
+              'languages',
+              {
+                get: () => [
+                  'en-US',
+                  'en'
+                ]
+              }
+            );
+
+            window.chrome = {
+              runtime: {}
+            };
+
+            const originalQuery =
+              window.navigator
+                .permissions
+                .query;
+
+            window.navigator
+              .permissions
+              .query =
+              parameters =>
+                parameters.name ===
+                'notifications'
+                  ? Promise.resolve({
+                      state:
+                        Notification.permission
+                    })
+                  : originalQuery(
+                      parameters
+                    );
+
+            Object.defineProperty(
+              navigator,
+              'platform',
+              {
+                get: () =>
+                  'Win32'
+              }
+            );
           }
+        );
+
+
+        const userAgents = [
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.3537.71',
+
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+
+          'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+
+          'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0'
+        ];
+
+        await page.setUserAgent(
+          userAgents[
+            Math.floor(
+              Math.random() *
+              userAgents.length
+            )
+          ]
+        );
+
+
+        // ======================================================
+        // SCREencast DISABLED
+        // ======================================================
+
+        addLog(
+          'Screencast disabled.'
+        );
+
+
+        // ======================================================
+        // SCHOOL PAGE
+        // ======================================================
+
+        await page.goto(
+          `https://selectschool.sparx-learning.com/?app=sparx_${app}`,
+          {
+            waitUntil:
+              'domcontentloaded',
+            timeout: 30000
+          }
+        );
+
+        addLog(
+          'Navigated to select school page.'
+        );
+
+
+        // Remove cookie overlay if present.
+        await page.evaluate(
+          () => {
+            const el =
+              document.getElementById(
+                'cookiescript_injected_wrapper'
+              );
+
+            if (el) {
+              el.remove();
+            }
+          }
+        ).catch(() => {});
+
+
+        // ======================================================
+        // SCHOOL INPUT
+        // ======================================================
+
+        const schoolInput =
+          await findSchoolInput(
+            page,
+            30000
+          );
+
+        addLog(
+          'Found Sparx school search input.'
+        );
+
+        const schoolInputInfo =
+          await schoolInput.evaluate(
+            el => ({
+              value:
+                el.value || '',
+              placeholder:
+                el.placeholder || '',
+              disabled:
+                el.disabled,
+              visible:
+                !!(
+                  el.offsetWidth ||
+                  el.offsetHeight ||
+                  el.getClientRects()
+                    .length
+                )
+            })
+          );
+
+        addLog(
+          `School input state: ${JSON.stringify(
+            schoolInputInfo
+          )}`
+        );
+
+        await schoolInput.click({
+          clickCount: 3
         });
 
-      } catch {}
+        await schoolInput.press(
+          'Backspace'
+        );
 
-
-      // --------------------------------------------------------
-      // SSO
-      // --------------------------------------------------------
-
-      if (
-        loginType &&
-        loginType.toLowerCase() !==
-          'normal'
-      ) {
-        await safeClick(
-          page,
-          '.sm-button.sso-login-button'
+        await schoolInput.type(
+          school,
+          {
+            delay: 25
+          }
         );
 
         addLog(
-          'Clicked SSO login button.'
+          `School name typed: ${school}`
         );
 
-        loginTypeStatus = true;
+        await delay(1000);
+
+        addLog(
+          'Waiting for school results...'
+        );
+
+        await selectSchoolResult(
+          page,
+          school,
+          30000
+        );
+
+        addLog(
+          'School result selected.'
+        );
 
 
-        const ssoNavigation =
-          page.waitForNavigation({
-            waitUntil:
-              'domcontentloaded',
-            timeout: 10000
-          }).catch(() => null);
+        // ======================================================
+        // SCHOOL SELECTION DIAGNOSTIC
+        // ======================================================
 
+        const selectedSchoolDiagnostic =
+          await page.evaluate(
+            () => {
+              const elements =
+                [
+                  ...document.querySelectorAll(
+                    '*'
+                  )
+                ];
 
-        await Promise.race([
-          ssoNavigation,
-          delay(1500)
-        ]);
+              return elements
+                .filter(el => {
+                  const text =
+                    el.innerText
+                      ?.trim() || '';
 
-
-        const landedFunction =
-          ({ url }) =>
-            [
-              'science',
-              'reader',
-              'maths',
-              'app'
-            ].some(
-              sub =>
-                url.includes(
-                  sub +
-                  '.sparx-learning.com'
+                  return (
+                    text ===
+                      'Heston Community School' ||
+                    text.startsWith(
+                      'Heston Community School'
+                    )
+                  );
+                })
+                .slice(
+                  0,
+                  10
                 )
+                .map(
+                  el => ({
+                    tag:
+                      el.tagName,
+                    text:
+                      el.innerText
+                        ?.trim(),
+                    role:
+                      el.getAttribute(
+                        'role'
+                      ),
+                    ariaSelected:
+                      el.getAttribute(
+                        'aria-selected'
+                      ),
+                    className:
+                      el.className,
+                    disabled:
+                      el.disabled ??
+                      null
+                  })
+                );
+            }
+          );
+
+        addLog(
+          `Selected school diagnostic: ${JSON.stringify(
+            selectedSchoolDiagnostic
+          )}`
+        );
+
+
+        const schoolState =
+          await page.evaluate(
+            () => {
+              const input =
+                document.querySelector(
+                  'input[placeholder*="Start typing your school"]'
+                );
+
+              const buttons =
+                [
+                  ...document.querySelectorAll(
+                    'button'
+                  )
+                ];
+
+              const continueButton =
+                buttons.find(
+                  b =>
+                    b.innerText
+                      ?.trim() ===
+                    'Continue'
+                );
+
+              return {
+                inputValue:
+                  input?.value ||
+                  '',
+                continueDisabled:
+                  continueButton
+                    ?.disabled ??
+                  null,
+                continueAriaDisabled:
+                  continueButton?.getAttribute(
+                    'aria-disabled'
+                  ) || null
+              };
+            }
+          );
+
+        addLog(
+          `School selection state: ${JSON.stringify(
+            schoolState
+          )}`
+        );
+
+        schoolStatus =
+          true;
+
+
+        // ======================================================
+        // CONTINUE BUTTON
+        // ======================================================
+
+        addLog(
+          'Preparing to click Continue...'
+        );
+
+        const continueButtons =
+          await page.$$('button');
+
+        let continueButton =
+          null;
+
+        for (
+          const button of
+          continueButtons
+        ) {
+          const text =
+            await button.evaluate(
+              el =>
+                el.innerText?.trim()
             );
 
+          if (
+            text?.toLowerCase() ===
+            'continue'
+          ) {
+            continueButton =
+              button;
+            break;
+          }
+        }
 
-        smartLoginVar =
-          await smartLogin(
-            page,
-            email,
-            password,
-            loginType,
-            landedFunction,
-            addLog,
-            on2FA
+        if (!continueButton) {
+          throw new Error(
+            'Continue button was not found.'
           );
+        }
 
+        const continueState =
+          await continueButton.evaluate(
+            el => ({
+              text:
+                el.innerText?.trim(),
+              disabled:
+                el.disabled,
+              type:
+                el.getAttribute(
+                  'type'
+                ),
+              className:
+                el.className
+            })
+          );
 
         addLog(
-          `smartLogin finished: emailFilled=${smartLoginVar.filledEmail}, passFilled=${smartLoginVar.filledPassword}`
+          `Continue state: ${JSON.stringify(
+            continueState
+          )}`
         );
 
-      } else {
-
-        // ------------------------------------------------------
-        // NORMAL LOGIN
-        // ------------------------------------------------------
-
-        const inputs =
-          await page.$$('.sm-input');
-
-        if (inputs.length < 2) {
+        if (
+          continueState.disabled
+        ) {
           throw new Error(
-            'Normal login inputs not found.'
+            'Continue button is disabled.'
           );
         }
 
+        addLog(
+          'Waiting for Sparx page JavaScript to finish settling...'
+        );
 
-        const emailValue =
-          await inputs[0].evaluate(
-            el => el.value || ''
-          );
+        await delay(1000);
 
+        addLog(
+          'Clicking Continue and waiting for navigation...'
+        );
 
-        if (!emailValue.trim()) {
-          await inputs[0].click({
-            clickCount: 3
-          });
+        const oldUrl =
+          page.url();
 
-          await inputs[0].press(
-            'Backspace'
-          );
-
-          await inputs[0].type(
-            email,
-            {
-              delay: 25
-            }
-          );
-
-          addLog(
-            'Typed email in normal login.'
-          );
-        }
-
-
-        emailTypeStatus = true;
-
-
-        const passValue =
-          await inputs[1].evaluate(
-            el => el.value || ''
-          );
-
-
-        if (!passValue.trim()) {
-          await inputs[1].click({
-            clickCount: 3
-          });
-
-          await inputs[1].press(
-            'Backspace'
-          );
-
-          await inputs[1].type(
-            password,
-            {
-              delay: 25
-            }
-          );
-
-          addLog(
-            'Typed password in normal login.'
-          );
-        }
-
-
-        passTypeStatus = true;
-        loginTypeStatus = true;
-
-
-        const loginNavigation =
+        await Promise.all([
           page.waitForNavigation({
             waitUntil:
               'domcontentloaded',
-            timeout: 10000
-          }).catch(() => null);
+            timeout: 15000
+          }).catch(() => null),
 
-
-        await safeClick(
-          page,
-          '.sm-button.login-button'
-        );
-
-
-        addLog(
-          'Clicked login button.'
-        );
-
-
-        await Promise.race([
-          loginNavigation,
-          delay(1500)
+          continueButton.click()
         ]);
 
+        await delay(1000);
+
+        const newUrl =
+          page.url();
 
         addLog(
-          'Finished post-login navigation.'
+          `URL before Continue: ${oldUrl}`
         );
-      }
-// --------------------------------------------------------
-// TEMPORARY: allow the authenticated Sparx app to load.
-// This is only for discovering the real homework endpoint.
-// --------------------------------------------------------
 
-addLog(
-  '[Sparx Diagnostic] Opening authenticated maths page...'
-);
+        addLog(
+          `URL after Continue: ${newUrl}`
+        );
 
-try {
-  await page.goto(
-    'https://maths.sparx-learning.com/',
-    {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000
-    }
-  );
+        if (
+          newUrl.includes(
+            'selectschool.sparx-learning.com'
+          )
+        ) {
+          throw new Error(
+            'Continue was clicked, but Sparx remained on the school-selection page.'
+          );
+        }
 
-  addLog(
-    `[Sparx Diagnostic] Maths page loaded: ${page.url()}`
-  );
+        addLog(
+          'Sparx left the school-selection page.'
+        );
 
-  await delay(5000);
+        await page.waitForFunction(
+          () =>
+            document.readyState !==
+            'loading',
+          {
+            timeout: 10000
+          }
+        ).catch(() => {});
 
-  addLog(
-    '[Sparx Diagnostic] Finished waiting for homework requests.'
-  );
-
-} catch (diagnosticError) {
-  addLog(
-    `[Sparx Diagnostic] Maths page error: ${diagnosticError.message}`
-  );
-}
-
-      // --------------------------------------------------------
-      // SESSION
-      // --------------------------------------------------------
-
-      await delay(1500);
-
-
-      const cookies =
-        await page.cookies();
-
-
-      const live =
-        cookies.find(
-          c =>
-            c.name ===
-            'live_ssoprovider_session'
+        addLog(
+          `Destination page ready: ${page.url()}`
         );
 
 
-      const spx =
-        cookies.find(
-          c =>
-            c.name ===
-            'spxlrn_session'
+        // ======================================================
+        // COOKIE POPUP
+        // ======================================================
+
+        try {
+          await page.waitForSelector(
+            '#cookiescript_injected_wrapper',
+            {
+              timeout: 5000
+            }
+          );
+
+          await page.evaluate(
+            () => {
+              const el =
+                document.getElementById(
+                  'cookiescript_injected_wrapper'
+                );
+
+              if (el) {
+                el.remove();
+              }
+            }
+          );
+
+        } catch {}
+
+
+        // ======================================================
+        // LOGIN
+        // ======================================================
+
+        if (
+          loginType &&
+          loginType
+            .toLowerCase() !==
+            'normal'
+        ) {
+
+          // ----------------------------------------------------
+          // SSO LOGIN
+          // ----------------------------------------------------
+
+          await safeClick(
+            page,
+            '.sm-button.sso-login-button'
+          );
+
+          addLog(
+            'Clicked SSO login button.'
+          );
+
+          loginTypeStatus =
+            true;
+
+          const ssoNavigation =
+            page.waitForNavigation({
+              waitUntil:
+                'domcontentloaded',
+              timeout: 10000
+            }).catch(() => null);
+
+          await Promise.race([
+            ssoNavigation,
+            delay(1500)
+          ]);
+
+          const landedFunction =
+            ({ url }) =>
+              [
+                'science',
+                'reader',
+                'maths',
+                'app'
+              ].some(
+                sub =>
+                  url.includes(
+                    sub +
+                    '.sparx-learning.com'
+                  )
+              );
+
+          smartLoginVar =
+            await smartLogin(
+              page,
+              email,
+              password,
+              loginType,
+              landedFunction,
+              addLog,
+              on2FA
+            );
+
+          addLog(
+            `smartLogin finished: emailFilled=${smartLoginVar.filledEmail}, passFilled=${smartLoginVar.filledPassword}`
+          );
+
+        } else {
+
+          // ----------------------------------------------------
+          // NORMAL LOGIN
+          // ----------------------------------------------------
+
+          const inputs =
+            await page.$$('.sm-input');
+
+          if (
+            inputs.length < 2
+          ) {
+            throw new Error(
+              'Normal login inputs not found.'
+            );
+          }
+
+          const emailValue =
+            await inputs[0].evaluate(
+              el =>
+                el.value || ''
+            );
+
+          if (
+            !emailValue.trim()
+          ) {
+            await inputs[0].click({
+              clickCount: 3
+            });
+
+            await inputs[0].press(
+              'Backspace'
+            );
+
+            await inputs[0].type(
+              email,
+              {
+                delay: 25
+              }
+            );
+
+            addLog(
+              'Typed email in normal login.'
+            );
+          }
+
+          emailTypeStatus =
+            true;
+
+          const passValue =
+            await inputs[1].evaluate(
+              el =>
+                el.value || ''
+            );
+
+          if (
+            !passValue.trim()
+          ) {
+            await inputs[1].click({
+              clickCount: 3
+            });
+
+            await inputs[1].press(
+              'Backspace'
+            );
+
+            await inputs[1].type(
+              password,
+              {
+                delay: 25
+              }
+            );
+
+            addLog(
+              'Typed password in normal login.'
+            );
+          }
+
+          passTypeStatus =
+            true;
+
+          loginTypeStatus =
+            true;
+
+          const loginNavigation =
+            page.waitForNavigation({
+              waitUntil:
+                'domcontentloaded',
+              timeout: 10000
+            }).catch(() => null);
+
+          await safeClick(
+            page,
+            '.sm-button.login-button'
+          );
+
+          addLog(
+            'Clicked login button.'
+          );
+
+          await Promise.race([
+            loginNavigation,
+            delay(1500)
+          ]);
+
+          addLog(
+            'Finished post-login navigation.'
+          );
+        }
+
+
+        // ======================================================
+        // IMPORTANT:
+        // DO NOT page.goto() TO MATHS HERE.
+        //
+        // The previous diagnostic navigation caused Sparx to
+        // return to OAuth/auth and destroyed the valid cookies.
+        //
+        // We simply allow the existing authenticated page to
+        // finish loading naturally.
+        // ======================================================
+
+        addLog(
+          `Post-login URL: ${page.url()}`
+        );
+
+        await delay(2500);
+
+        addLog(
+          `Post-login settled URL: ${page.url()}`
         );
 
 
-      addLog(
-        `Cookie check: live=${!!live}, spxlrn=${!!spx}`
-      );
+        // ======================================================
+        // COOKIE VALIDATION
+        // ======================================================
 
+        const cookies =
+          await page.cookies();
 
-      const cookieString =
-        `live_ssoprovider_session=${live?.value || ''}; spxlrn_session=${spx?.value || ''}`;
+        const live =
+          cookies.find(
+            c =>
+              c.name ===
+              'live_ssoprovider_session'
+          );
 
+        const spx =
+          cookies.find(
+            c =>
+              c.name ===
+              'spxlrn_session'
+          );
 
-      if (
-        cookieString.length <= 42
-      ) {
-        throw new Error(
-          'Login failed - no valid cookies found'
+        addLog(
+          `Cookie check: live=${!!live}, spxlrn=${!!spx}`
         );
+
+        if (
+          !live ||
+          !spx
+        ) {
+          throw new Error(
+            'Login failed - no valid cookies found'
+          );
+        }
+
+        const cookieString =
+          `live_ssoprovider_session=${live.value}; spxlrn_session=${spx.value}`;
+
+        addLog(
+          'Login successful, cookies validated.'
+        );
+
+        await browser.close();
+
+        browser =
+          null;
+
+        return cookieString;
+
+      } catch (err) {
+
+        const attemptMsg =
+          `Attempt ${attempt} failed: ${err.message}`;
+
+        console.log(
+          attemptMsg
+        );
+
+        addLog(
+          attemptMsg
+        );
+
+        if (browser) {
+          await browser.close()
+            .catch(() => {});
+
+          browser =
+            null;
+        }
+
+        emailTypeStatus =
+          smartLoginVar.filledEmail;
+
+        passTypeStatus =
+          smartLoginVar.filledPassword;
+
+        return {
+          status: 'error',
+          schoolStatus,
+          loginTypeStatus,
+          emailTypeStatus,
+          passTypeStatus
+        };
       }
-
-
-      if (recorder) {
-        await recorder.stop();
-      }
-
-
-      await browser.close();
-
-
-      if (
-        fs.existsSync(vid_path)
-      ) {
-        convertWebmToMp4(
-          vid_path
-        ).catch(console.error);
-      }
-
-
-      addLog(
-        'Login successful, cookies validated.'
-      );
-
-
-      return cookieString;
-
 
     } catch (err) {
 
-      const attemptMsg =
-        `Attempt ${attempt} failed: ${err.message}`;
-
-      console.log(
-        attemptMsg
+      console.error(
+        '[Sparx Login] Unexpected error:',
+        err
       );
-
-      addLog(
-        attemptMsg
-      );
-
-
-      if (recorder) {
-        await recorder.stop()
-          .catch(() => {});
-      }
-
-
-      if (browser) {
-        await browser.close()
-          .catch(() => {});
-      }
-
-
-      if (
-        fs.existsSync(vid_path)
-      ) {
-        vid_path =
-          await convertWebmToMp4(
-            vid_path
-          );
-      }
-
-
-      emailTypeStatus =
-        smartLoginVar.filledEmail;
-
-      passTypeStatus =
-        smartLoginVar.filledPassword;
-
 
       return {
         status: 'error',
-        schoolStatus,
-        loginTypeStatus,
-        emailTypeStatus,
-        passTypeStatus,
-        vid_path
+        schoolStatus: false,
+        loginTypeStatus: false,
+        emailTypeStatus: false,
+        passTypeStatus: false
       };
-
-    } finally {
-
-      if (
-        browser &&
-        browser.isConnected()
-      ) {
-        await browser.close()
-          .catch(() => {});
-      }
     }
   }
 }
 
 
 // ============================================================
-// EXPORTED
+// GET SPARX TOKEN
 // ============================================================
 
 async function getTokenSparx(
@@ -1354,37 +1478,42 @@ async function getTokenSparx(
       on2FA
     );
 
-
   if (
     !cookiesString ||
-    cookiesString?.status === 'error'
+    cookiesString?.status ===
+      'error'
   ) {
     return cookiesString;
   }
 
-
-  console.log('Starting Sparx token request...');
-
-const token =
-  await getTokenRequest(
-    cookiesString
+  console.log(
+    'Starting Sparx token request...'
   );
 
-console.log(
-  `Sparx token response received: ${
-    token
-      ? `length=${String(token).length}`
-      : 'NULL'
-  }`
-);
+  const token =
+    await getTokenRequest(
+      cookiesString
+    );
 
+  console.log(
+    `Sparx token response received: ${
+      token
+        ? `length=${String(token).length}`
+        : 'NULL'
+    }`
+  );
 
   return {
     token,
-    cookies: cookiesString
+    cookies:
+      cookiesString
   };
 }
 
+
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   getTokenSparx,
