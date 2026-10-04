@@ -513,16 +513,68 @@ page.on('request', request => {
   }
 });
 
-page.on('response', response => {
-  const url = response.url();
+page.on('response', async response => {
+    const url = response.url();
 
-  if (
-    url.includes('api.sparx-learning.com')
-  ) {
-    addLog(
-      `[SPARX RESPONSE] ${response.status()} ${url}`
-    );
-  }
+    if (
+        url.includes(
+            '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
+        )
+    ) {
+        try {
+            const headers = response.headers();
+            const contentType =
+                headers['content-type'] || 'unknown';
+
+            const body = await response.buffer();
+
+            const firstBytes =
+                body
+                    .subarray(0, 32)
+                    .toString('hex');
+
+            addLog(
+                `[Sparx Packages] status=${response.status()}`
+            );
+
+            addLog(
+                `[Sparx Packages] content-type=${contentType}`
+            );
+
+            addLog(
+                `[Sparx Packages] response-size=${body.length}`
+            );
+
+            addLog(
+                `[Sparx Packages] first-bytes=${firstBytes}`
+            );
+
+            // If it happens to be JSON, show only its top-level keys.
+            if (
+                contentType.includes('json')
+            ) {
+                try {
+                    const json =
+                        JSON.parse(body.toString('utf8'));
+
+                    addLog(
+                        `[Sparx Packages] JSON keys=${JSON.stringify(
+                            Object.keys(json)
+                        )}`
+                    );
+                } catch {
+                    addLog(
+                        '[Sparx Packages] Response was not valid JSON.'
+                    );
+                }
+            }
+
+        } catch (error) {
+            addLog(
+                `[Sparx Packages] diagnostic error: ${error.message}`
+            );
+        }
+    }
 });
 
       // --------------------------------------------------------
