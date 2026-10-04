@@ -235,259 +235,80 @@ class SparxMaths extends SparxBase {
      * 4. gRPC payload integrity
      */
     async getHomeworks() {
-        const inputObject = {
-            includeAllActivePackages: true,
-            getPackages: true,
-            getTasks: false,
-            getTaskItems: false,
-            packageID: '',
-            taskIndex: 0,
-            taskItemIndex: 0
-        };
+    const inputObject = {
+        includeAllActivePackages: true,
+        getPackages: true,
+        getTasks: false,
+        getTaskItems: false,
+        packageID: '',
+        taskIndex: 0,
+        taskItemIndex: 0
+    };
 
-        try {
-            console.log(
-                '[Sparx GetPackageData] Input object:',
-                JSON.stringify(inputObject)
+    console.log("[Sparx] Fetching homework packages...");
+
+    try {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            "PackageDataRequest"
+        );
+
+        const response = await this.send(
+            "https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData",
+            fullMessage
+        );
+
+        console.log(
+            "[Sparx] GetPackageData HTTP:",
+            response?.status
+        );
+
+        console.log(
+            "[Sparx] GetPackageData response bytes:",
+            response?.data?.length
+        );
+
+        if (!response || !response.data) {
+            throw new Error(
+                "GetPackageData returned an empty response."
             );
-
-            /*
-             * Encode PackageDataRequest directly.
-             */
-            const protobufData =
-                await this.encodeFunc(
-                    inputObject,
-                    'PackageDataRequest'
-                );
-
-            if (!protobufData) {
-                throw new Error(
-                    'PackageDataRequest encoder returned no data.'
-                );
-            }
-
-            const rawBytes =
-                Buffer.from(protobufData);
-
-            console.log(
-                '[Sparx GetPackageData] Protobuf payload bytes:',
-                rawBytes.length
-            );
-
-            /*
-             * Safe protobuf diagnostic.
-             * This contains only the request bytes,
-             * never credentials or cookies.
-             */
-            console.log(
-                '[Sparx GetPackageData] Protobuf payload hex:',
-                rawBytes.toString('hex')
-            );
-
-            /*
-             * Decode the request immediately.
-             *
-             * If this matches inputObject, our generated
-             * protobuf encoder/decoder agree.
-             */
-            const roundTrip =
-                await this.decodeFunc(
-                    new Uint8Array(rawBytes),
-                    'PackageDataRequest'
-                );
-
-            console.log(
-                '[Sparx GetPackageData] Round-trip decoded request:',
-                JSON.stringify(roundTrip)
-            );
-
-            /*
-             * Build the gRPC-Web frame.
-             */
-            const fullMessage =
-                await this.encodeStuff(
-                    inputObject,
-                    'PackageDataRequest'
-                );
-
-            console.log(
-                '[Sparx GetPackageData] gRPC message bytes:',
-                fullMessage.length
-            );
-
-            /*
-             * gRPC-Web frame:
-             *
-             * byte 0:
-             *   0 = normal data frame
-             *
-             * bytes 1-4:
-             *   protobuf payload length
-             */
-            const grpcFlag =
-                fullMessage.readUInt8(0);
-
-            const grpcLength =
-                fullMessage.readUInt32BE(1);
-
-            const actualPayloadLength =
-                fullMessage.length - 5;
-
-            console.log(
-                '[Sparx GetPackageData] gRPC flag:',
-                grpcFlag
-            );
-
-            console.log(
-                '[Sparx GetPackageData] gRPC declared length:',
-                grpcLength
-            );
-
-            console.log(
-                '[Sparx GetPackageData] gRPC actual payload length:',
-                actualPayloadLength
-            );
-
-            console.log(
-                '[Sparx GetPackageData] gRPC length valid:',
-                grpcLength === actualPayloadLength
-            );
-
-            /*
-             * Verify the protobuf payload wasn't changed
-             * when wrapped in the gRPC frame.
-             */
-            const framedPayload =
-                fullMessage.subarray(5);
-
-            console.log(
-                '[Sparx GetPackageData] Framed payload matches protobuf:',
-                framedPayload.equals(rawBytes)
-            );
-
-            /*
-             * Send request to Sparx.
-             */
-            console.log(
-                '[Sparx GetPackageData] Sending request...'
-            );
-
-            const homeworkRequest =
-                await this.send(
-                    'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-                    fullMessage
-                );
-
-            console.log(
-                '[Sparx GetPackageData] HTTP:',
-                homeworkRequest?.status
-            );
-
-            console.log(
-                '[Sparx GetPackageData] Response bytes:',
-                Buffer.isBuffer(
-                    homeworkRequest?.data
-                )
-                    ? homeworkRequest.data.length
-                    : 'NOT BUFFER'
-            );
-
-            console.log(
-                '[Sparx GetPackageData] grpc-status:',
-                homeworkRequest?.headers?.[
-                    'grpc-status'
-                ]
-            );
-
-            console.log(
-                '[Sparx GetPackageData] grpc-message:',
-                homeworkRequest?.headers?.[
-                    'grpc-message'
-                ]
-            );
-
-            if (
-                !homeworkRequest ||
-                !homeworkRequest.data
-            ) {
-                throw new Error(
-                    'GetPackageData returned an empty response.'
-                );
-            }
-
-            /*
-             * Inspect the beginning of the response frame.
-             * Only binary bytes are shown.
-             */
-            const responseBytes =
-                Buffer.from(
-                    homeworkRequest.data
-                );
-
-            console.log(
-                '[Sparx GetPackageData] Response first bytes:',
-                responseBytes
-                    .subarray(
-                        0,
-                        Math.min(
-                            responseBytes.length,
-                            32
-                        )
-                    )
-                    .toString('hex')
-            );
-
-            /*
-             * Decode PackageDataResponse.
-             */
-            const homeworkResponse =
-                await this.decodeStuff(
-                    responseBytes,
-                    'PackageDataResponse'
-                );
-
-            console.log(
-                '[Sparx GetPackageData] Decoded package count:',
-                Array.isArray(
-                    homeworkResponse?.packages
-                )
-                    ? homeworkResponse.packages.length
-                    : 'NOT ARRAY'
-            );
-
-            console.log(
-                '[Sparx GetPackageData] Decoded task count:',
-                Array.isArray(
-                    homeworkResponse?.tasks
-                )
-                    ? homeworkResponse.tasks.length
-                    : 'NOT ARRAY'
-            );
-
-            console.log(
-                '[Sparx GetPackageData] Decoded taskItem count:',
-                Array.isArray(
-                    homeworkResponse?.taskItems
-                )
-                    ? homeworkResponse.taskItems.length
-                    : 'NOT ARRAY'
-            );
-
-            return homeworkResponse;
-
-        } catch (err) {
-            this.log.logToFile(
-                `Error in getHomeworks: ${err.message}`
-            );
-
-            console.error(
-                '[Sparx GetPackageData] Error:',
-                err
-            );
-
-            throw err;
         }
+
+        const result = await this.decodeStuff(
+            response.data,
+            "PackageDataResponse"
+        );
+
+        console.log(
+            "[Sparx] Packages:",
+            result?.packages?.length ?? 0
+        );
+
+        console.log(
+            "[Sparx] Tasks:",
+            result?.tasks?.length ?? 0
+        );
+
+        console.log(
+            "[Sparx] Task items:",
+            result?.taskItems?.length ?? 0
+        );
+
+        return result;
+
+    } catch (err) {
+        this.log.logToFile(
+            `Error in getHomeworks: ${err.message}`
+        );
+
+        console.error(
+            "[Sparx] GetPackageData error:",
+            err
+        );
+
+        throw err;
     }
+}
 
     async getTasksItems(
         packageID,
