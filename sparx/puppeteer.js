@@ -45,17 +45,44 @@ async function getTokenRequest(cookies, attempts = 3) {
         throw new Error("Empty response from Sparx token endpoint");
       }
 
-      const token =
-        typeof response === "string"
-          ? response.trim()
-          : JSON.stringify(response);
+      let token;
 
-      if (!token) {
-        throw new Error("Sparx token response was empty");
+      if (typeof response === "string") {
+        const trimmed = response.trim();
+
+        try {
+          const parsed = JSON.parse(trimmed);
+
+          if (typeof parsed === "string") {
+            token = parsed.trim();
+          } else if (parsed && typeof parsed === "object") {
+            token =
+              parsed.token ||
+              parsed.access_token ||
+              parsed.id_token ||
+              parsed.accessToken;
+          }
+        } catch {
+          token = trimmed;
+        }
+      } else if (typeof response === "object") {
+        token =
+          response.token ||
+          response.access_token ||
+          response.id_token ||
+          response.accessToken;
       }
 
+      if (!token || typeof token !== "string") {
+        throw new Error(
+          "Could not extract a token from the Sparx token response"
+        );
+      }
+
+      token = token.trim();
+
       console.log(
-        `[Sparx Token] Token response received (${token.length} chars)`
+        `[Sparx Token] Token extracted successfully (${token.length} chars)`
       );
 
       return token;
@@ -65,15 +92,13 @@ async function getTokenRequest(cookies, attempts = 3) {
         `[Sparx Token] Attempt ${attempt} failed: ${error.message}`
       );
 
-      if (attempt < attempts) {
-        console.log("[Sparx Token] Retrying in 1.5 seconds...");
-        await delay(1500);
+      if (attempt >= attempts) {
+        throw error;
       }
+
+      await delay(1000);
     }
   }
-
-  console.error("[Sparx Token] All token request attempts failed.");
-  return null;
 }
 
 
