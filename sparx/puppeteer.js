@@ -652,14 +652,6 @@ addLog(
 );
 
 
-      await selectSchoolResult(
-        page,
-        school,
-        15000
-      );
-
-      addLog('Selected school result.');
-
 const selectedSchoolDiagnostic = await page.evaluate(() => {
   const elements = [...document.querySelectorAll('*')];
 
