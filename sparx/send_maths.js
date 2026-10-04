@@ -4,12 +4,18 @@ async function getClientSession(requesticator) {
     const url =
         "https://api.sparx-learning.com/sparx.messaging.server.v1.SWServerSession/ClientSession";
 
-    // gRPC-Web framed empty request
+    // Empty gRPC-Web request.
     const body = Buffer.from([
-        0x00, 0x00, 0x00, 0x00, 0x00
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00
     ]);
 
-    console.log("[Sparx ClientSession] Sending request...");
+    console.log(
+        "[Sparx ClientSession] Sending request..."
+    );
 
     const response = await requesticator.sendRequest(
         url,
@@ -28,17 +34,23 @@ async function getClientSession(requesticator) {
         `[Sparx ClientSession] HTTP status: ${status}`
     );
 
-    // Do NOT try to protobuf-decode an HTTP error page.
+    /*
+     * IMPORTANT:
+     * Do not try to protobuf-decode an HTTP error response.
+     */
     if (status !== 200) {
         let safeDetails = "";
 
         if (response.data) {
             if (Buffer.isBuffer(response.data)) {
-                safeDetails = `Response body length: ${response.data.length} bytes`;
+                safeDetails =
+                    `Response body length: ${response.data.length} bytes`;
             } else if (typeof response.data === "string") {
-                safeDetails = `Response body length: ${response.data.length} chars`;
+                safeDetails =
+                    `Response body length: ${response.data.length} chars`;
             } else {
-                safeDetails = `Response body type: ${typeof response.data}`;
+                safeDetails =
+                    `Response body type: ${typeof response.data}`;
             }
         }
 
@@ -47,7 +59,10 @@ async function getClientSession(requesticator) {
         );
     }
 
-    if (!response.data || !Buffer.isBuffer(response.data)) {
+    if (
+        !response.data ||
+        !Buffer.isBuffer(response.data)
+    ) {
         throw new Error(
             "[Sparx ClientSession] Successful response did not contain binary data"
         );
