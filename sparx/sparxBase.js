@@ -19,9 +19,8 @@ class SparxBase {
             logToFile: () => {}
         };
         
-        // Default Requesticator
         this.curlRequests = new Sparx_Requesticator(authToken);
-    }
+        this.curlRequests.cookies = cookies;
 
     stripGrpcWebTrailer(uint8Array) {
         const TRAILER_FLAG = 0x80;
