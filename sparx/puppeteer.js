@@ -491,7 +491,39 @@ async function getCookies(
       addLog(
         'Browser launched and new page created.'
       );
+// --------------------------------------------------------
+// TEMPORARY SPARX NETWORK DIAGNOSTIC
+// Logs only request/response URLs and status.
+// NEVER logs cookies, tokens, passwords or request bodies.
+// --------------------------------------------------------
 
+page.on('request', request => {
+  const url = request.url();
+
+  if (
+    url.includes('api.sparx-learning.com') &&
+    (
+      request.method() === 'POST' ||
+      request.method() === 'GET'
+    )
+  ) {
+    addLog(
+      `[SPARX REQUEST] ${request.method()} ${url}`
+    );
+  }
+});
+
+page.on('response', response => {
+  const url = response.url();
+
+  if (
+    url.includes('api.sparx-learning.com')
+  ) {
+    addLog(
+      `[SPARX RESPONSE] ${response.status()} ${url}`
+    );
+  }
+});
 
       // --------------------------------------------------------
       // Existing page setup
@@ -1092,7 +1124,39 @@ addLog(
           'Finished post-login navigation.'
         );
       }
+// --------------------------------------------------------
+// TEMPORARY: allow the authenticated Sparx app to load.
+// This is only for discovering the real homework endpoint.
+// --------------------------------------------------------
 
+addLog(
+  '[Sparx Diagnostic] Opening authenticated maths page...'
+);
+
+try {
+  await page.goto(
+    'https://maths.sparx-learning.com/',
+    {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    }
+  );
+
+  addLog(
+    `[Sparx Diagnostic] Maths page loaded: ${page.url()}`
+  );
+
+  await delay(5000);
+
+  addLog(
+    '[Sparx Diagnostic] Finished waiting for homework requests.'
+  );
+
+} catch (diagnosticError) {
+  addLog(
+    `[Sparx Diagnostic] Maths page error: ${diagnosticError.message}`
+  );
+}
 
       // --------------------------------------------------------
       // SESSION
