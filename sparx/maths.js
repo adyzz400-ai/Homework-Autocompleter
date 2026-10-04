@@ -1,16 +1,28 @@
 const { decode, encode } = require('./sm_code.js');
 const { getClientSession } = require('./send_maths.js');
-const { getTokenSparx, getTokenRequest } = require('./puppeteer.js');
+const {
+    getTokenSparx,
+    getTokenRequest
+} = require('./puppeteer.js');
+
 const SparxBase = require('./sparxBase.js');
 
 class SparxMaths extends SparxBase {
     constructor(authToken, login = {}, cookies) {
-        super(authToken, login, cookies, decode, encode);
+        super(
+            authToken,
+            login,
+            cookies,
+            decode,
+            encode
+        );
     }
 
     async send(url, uint8Array, attempts = 3) {
         try {
-            this.log.logToFile(`Sending request to ${url}`);
+            this.log.logToFile(
+                `Sending request to ${url}`
+            );
 
             const response =
                 await this.curlRequests.sendRequest(
@@ -22,8 +34,10 @@ class SparxMaths extends SparxBase {
                 `**Response returned**\nStatus: ${response.status}\n${JSON.stringify(response.headers, null, 2)}`
             );
 
-            if (response.status == 401) {
-                console.log('Caught 401 in maths');
+            if (response.status === 401) {
+                console.log(
+                    'Caught 401 in maths'
+                );
 
                 const err =
                     new Error("Unauthorized");
@@ -35,16 +49,18 @@ class SparxMaths extends SparxBase {
                 throw err;
             }
 
-            /*
-             * Check for gRPC error status
-             */
             if (
                 response.headers['grpc-status'] === '16' ||
                 response.headers['grpc-status'] === '9' ||
                 response.headers['grpc-status'] === '7'
             ) {
+                const grpcMessage =
+                    response.headers[
+                        'grpc-message'
+                    ] || '';
+
                 if (
-                    response.headers['grpc-message'] ===
+                    grpcMessage ===
                     'TaskItemHidden'
                 ) {
                     this.log.logToFile(
@@ -55,26 +71,24 @@ class SparxMaths extends SparxBase {
                 }
 
                 if (
-                    response.headers['grpc-message'] &&
-                    response.headers['grpc-message'].includes(
+                    grpcMessage.includes(
                         'PendingWAC'
                     )
                 ) {
                     this.log.logToFile(
-                        "Bookwork check caught"
+                        'Bookwork check caught'
                     );
 
                     return null;
                 }
 
                 if (
-                    response.headers['grpc-message'] &&
-                    response.headers['grpc-message'].includes(
+                    grpcMessage.includes(
                         'SessionInactive'
                     )
                 ) {
                     this.log.logToFile(
-                        "SESSION INACTIVE CAUGHT!"
+                        'SESSION INACTIVE CAUGHT!'
                     );
 
                     await this.getClientSession();
@@ -106,7 +120,8 @@ class SparxMaths extends SparxBase {
 
         } catch (err) {
             await new Promise(
-                res => setTimeout(res, 5000)
+                resolve =>
+                    setTimeout(resolve, 5000)
             );
 
             this.log.logToFile(err);
@@ -116,7 +131,7 @@ class SparxMaths extends SparxBase {
                 attempts > 1
             ) {
                 this.log.logToFile(
-                    "Caught 401 Unauthorized, handling it attempting relogin..."
+                    'Caught 401 Unauthorized, attempting relogin...'
                 );
 
                 let newAuthToken;
@@ -139,13 +154,12 @@ class SparxMaths extends SparxBase {
                     if (
                         newAuthTokenN?.token &&
                         !newAuthTokenN.token.includes(
-                            "Unauthorized"
+                            'Unauthorized'
                         )
                     ) {
                         newAuthToken =
                             newAuthTokenN.token;
                     }
-
                 } else {
                     newAuthToken =
                         await getTokenRequest(
@@ -163,7 +177,7 @@ class SparxMaths extends SparxBase {
 
                 if (newAuthToken) {
                     this.log.logToFile(
-                        'The new authtoken has been successfully acquired!'
+                        'New auth token acquired successfully.'
                     );
 
                     this.authToken =
@@ -184,9 +198,8 @@ class SparxMaths extends SparxBase {
                     await this.getClientSession();
 
                     console.log(
-                        "Client session success"
+                        'Client session refreshed successfully.'
                     );
-
                 } else {
                     this.log.logToFile(
                         'Unable to login after 401 status code'
@@ -198,33 +211,99 @@ class SparxMaths extends SparxBase {
                     uint8Array,
                     attempts - 1
                 );
+            }
 
-            } else if (attempts > 1) {
-
+            if (attempts > 1) {
                 return await this.send(
                     url,
                     uint8Array,
                     attempts - 1
                 );
-
-            } else {
-                throw new Error(err);
             }
+
+            throw err;
         }
     }
 
+    /*
+     * Fetch active Sparx homework packages.
+     *
+     * This version additionally verifies:
+     * 1. PackageDataRequest protobuf encoding
+     * 2. Protobuf -> decode round trip
+     * 3. gRPC-Web frame length
+     * 4. gRPC payload integrity
+     */
     async getHomeworks() {
         const inputObject = {
             includeAllActivePackages: true,
             getPackages: true,
             getTasks: false,
             getTaskItems: false,
-            packageID: "",
+            packageID: '',
             taskIndex: 0,
             taskItemIndex: 0
         };
 
         try {
+            console.log(
+                '[Sparx GetPackageData] Input object:',
+                JSON.stringify(inputObject)
+            );
+
+            /*
+             * Encode PackageDataRequest directly.
+             */
+            const protobufData =
+                await this.encodeFunc(
+                    inputObject,
+                    'PackageDataRequest'
+                );
+
+            if (!protobufData) {
+                throw new Error(
+                    'PackageDataRequest encoder returned no data.'
+                );
+            }
+
+            const rawBytes =
+                Buffer.from(protobufData);
+
+            console.log(
+                '[Sparx GetPackageData] Protobuf payload bytes:',
+                rawBytes.length
+            );
+
+            /*
+             * Safe protobuf diagnostic.
+             * This contains only the request bytes,
+             * never credentials or cookies.
+             */
+            console.log(
+                '[Sparx GetPackageData] Protobuf payload hex:',
+                rawBytes.toString('hex')
+            );
+
+            /*
+             * Decode the request immediately.
+             *
+             * If this matches inputObject, our generated
+             * protobuf encoder/decoder agree.
+             */
+            const roundTrip =
+                await this.decodeFunc(
+                    new Uint8Array(rawBytes),
+                    'PackageDataRequest'
+                );
+
+            console.log(
+                '[Sparx GetPackageData] Round-trip decoded request:',
+                JSON.stringify(roundTrip)
+            );
+
+            /*
+             * Build the gRPC-Web frame.
+             */
             const fullMessage =
                 await this.encodeStuff(
                     inputObject,
@@ -232,7 +311,65 @@ class SparxMaths extends SparxBase {
                 );
 
             console.log(
-                "[Sparx GetPackageData] Sending request..."
+                '[Sparx GetPackageData] gRPC message bytes:',
+                fullMessage.length
+            );
+
+            /*
+             * gRPC-Web frame:
+             *
+             * byte 0:
+             *   0 = normal data frame
+             *
+             * bytes 1-4:
+             *   protobuf payload length
+             */
+            const grpcFlag =
+                fullMessage.readUInt8(0);
+
+            const grpcLength =
+                fullMessage.readUInt32BE(1);
+
+            const actualPayloadLength =
+                fullMessage.length - 5;
+
+            console.log(
+                '[Sparx GetPackageData] gRPC flag:',
+                grpcFlag
+            );
+
+            console.log(
+                '[Sparx GetPackageData] gRPC declared length:',
+                grpcLength
+            );
+
+            console.log(
+                '[Sparx GetPackageData] gRPC actual payload length:',
+                actualPayloadLength
+            );
+
+            console.log(
+                '[Sparx GetPackageData] gRPC length valid:',
+                grpcLength === actualPayloadLength
+            );
+
+            /*
+             * Verify the protobuf payload wasn't changed
+             * when wrapped in the gRPC frame.
+             */
+            const framedPayload =
+                fullMessage.subarray(5);
+
+            console.log(
+                '[Sparx GetPackageData] Framed payload matches protobuf:',
+                framedPayload.equals(rawBytes)
+            );
+
+            /*
+             * Send request to Sparx.
+             */
+            console.log(
+                '[Sparx GetPackageData] Sending request...'
             );
 
             const homeworkRequest =
@@ -241,36 +378,31 @@ class SparxMaths extends SparxBase {
                     fullMessage
                 );
 
-            /*
-             * Safe diagnostics.
-             * These do NOT print the account token,
-             * password, cookies or homework contents.
-             */
             console.log(
-                "[Sparx GetPackageData] HTTP:",
+                '[Sparx GetPackageData] HTTP:',
                 homeworkRequest?.status
             );
 
             console.log(
-                "[Sparx GetPackageData] Bytes:",
+                '[Sparx GetPackageData] Response bytes:',
                 Buffer.isBuffer(
                     homeworkRequest?.data
                 )
                     ? homeworkRequest.data.length
-                    : "NOT BUFFER"
+                    : 'NOT BUFFER'
             );
 
             console.log(
-                "[Sparx GetPackageData] grpc-status:",
+                '[Sparx GetPackageData] grpc-status:',
                 homeworkRequest?.headers?.[
-                    "grpc-status"
+                    'grpc-status'
                 ]
             );
 
             console.log(
-                "[Sparx GetPackageData] grpc-message:",
+                '[Sparx GetPackageData] grpc-message:',
                 homeworkRequest?.headers?.[
-                    "grpc-message"
+                    'grpc-message'
                 ]
             );
 
@@ -279,41 +411,66 @@ class SparxMaths extends SparxBase {
                 !homeworkRequest.data
             ) {
                 throw new Error(
-                    "Failed to fetch homeworks: Empty response"
+                    'GetPackageData returned an empty response.'
                 );
             }
 
+            /*
+             * Inspect the beginning of the response frame.
+             * Only binary bytes are shown.
+             */
+            const responseBytes =
+                Buffer.from(
+                    homeworkRequest.data
+                );
+
+            console.log(
+                '[Sparx GetPackageData] Response first bytes:',
+                responseBytes
+                    .subarray(
+                        0,
+                        Math.min(
+                            responseBytes.length,
+                            32
+                        )
+                    )
+                    .toString('hex')
+            );
+
+            /*
+             * Decode PackageDataResponse.
+             */
             const homeworkResponse =
                 await this.decodeStuff(
-                    homeworkRequest.data,
+                    responseBytes,
                     'PackageDataResponse'
                 );
 
             console.log(
-                "[Sparx GetPackageData] Decoded package count:",
+                '[Sparx GetPackageData] Decoded package count:',
                 Array.isArray(
                     homeworkResponse?.packages
                 )
                     ? homeworkResponse.packages.length
-                    : "NOT ARRAY"
+                    : 'NOT ARRAY'
             );
 
             console.log(
-                "[Sparx GetPackageData] Decoded task count:",
+                '[Sparx GetPackageData] Decoded task count:',
                 Array.isArray(
                     homeworkResponse?.tasks
                 )
                     ? homeworkResponse.tasks.length
-                    : "NOT ARRAY"
+                    : 'NOT ARRAY'
             );
 
             console.log(
-                "[Sparx GetPackageData] Decoded taskItem count:",
+                '[Sparx GetPackageData] Decoded taskItem count:',
                 Array.isArray(
                     homeworkResponse?.taskItems
                 )
                     ? homeworkResponse.taskItems.length
-                    : "NOT ARRAY"
+                    : 'NOT ARRAY'
             );
 
             return homeworkResponse;
@@ -324,7 +481,7 @@ class SparxMaths extends SparxBase {
             );
 
             console.error(
-                'Error in getHomeworks:',
+                '[Sparx GetPackageData] Error:',
                 err
             );
 
@@ -341,8 +498,8 @@ class SparxMaths extends SparxBase {
             getPackages: false,
             getTasks: false,
             getTaskItems: true,
-            packageID: packageID,
-            taskIndex: taskIndex,
+            packageID,
+            taskIndex,
             taskItemIndex: 0
         };
 
@@ -373,7 +530,7 @@ class SparxMaths extends SparxBase {
             getPackages: false,
             getTasks: true,
             getTaskItems: false,
-            packageID: packageID,
+            packageID,
             taskIndex: 0,
             taskItemIndex: 0
         };
@@ -407,17 +564,17 @@ class SparxMaths extends SparxBase {
         activityType = 0
     ) {
         const inputObject = {
-            activityType: activityType,
+            activityType,
             payload: {},
             method: 0,
             clientFeatureFlags: {},
             taskItem: {
-                packageID: packageID,
-                taskIndex: taskIndex,
-                taskItemIndex: taskItemIndex,
+                packageID,
+                taskIndex,
+                taskItemIndex,
                 taskState: 0
             },
-            timestamp: timestamp
+            timestamp
         };
 
         const fullMessage =
@@ -439,13 +596,10 @@ class SparxMaths extends SparxBase {
             return homeworkRequest;
         }
 
-        const homeworkResponse =
-            await this.decodeStuff(
-                homeworkRequest.data,
-                'Activity'
-            );
-
-        return homeworkResponse;
+        return await this.decodeStuff(
+            homeworkRequest.data,
+            'Activity'
+        );
     }
 
     async getClientSession() {
@@ -457,7 +611,7 @@ class SparxMaths extends SparxBase {
         const response =
             await this.decodeStuff(
                 responseBuffer,
-                "ClientSessionResponse"
+                'ClientSessionResponse'
             );
 
         if (
@@ -465,35 +619,29 @@ class SparxMaths extends SparxBase {
             !response.sessionId
         ) {
             throw new Error(
-                "Sparx ClientSession did not return a session ID."
+                'Sparx ClientSession did not return a session ID.'
             );
         }
 
         this.sessionId =
             response.sessionId;
 
-        /*
-         * Remove any previous session ID.
-         */
         this.curlRequests.headers =
             this.curlRequests.headers.filter(
                 header =>
                     !header
                         .toLowerCase()
                         .startsWith(
-                            "x-session-id:"
+                            'x-session-id:'
                         )
             );
 
-        /*
-         * Add the CURRENT session ID.
-         */
         this.curlRequests.headers.push(
             `x-session-id: ${this.sessionId}`
         );
 
         console.log(
-            "[Sparx ClientSession] Session ID installed."
+            '[Sparx ClientSession] Session ID installed.'
         );
 
         return this.sessionId;
@@ -512,13 +660,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ActivityActionResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'ActivityActionResponse'
+        );
     }
 
     async readyQuestion(inputObject) {
@@ -534,13 +679,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ActivityActionResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'ActivityActionResponse'
+        );
     }
 
     async startTimesTable(inputObject) {
@@ -556,13 +698,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ActivityAction'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'ActivityAction'
+        );
     }
 
     async answerTimesTable(inputObject) {
@@ -578,13 +717,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ActivityActionResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'ActivityActionResponse'
+        );
     }
 
     async searchIndependantLearning(inputObject) {
@@ -600,13 +736,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'Result'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'Result'
+        );
     }
 
     async getPackagesIndependantLearning(
@@ -624,13 +757,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'GetPackagesForObjectivesResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'GetPackagesForObjectivesResponse'
+        );
     }
 
     async getActivePackages(inputObject) {
@@ -646,13 +776,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'GetActivePackagesResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'GetActivePackagesResponse'
+        );
     }
 
     async listTopicSummariesRequest(
@@ -670,13 +797,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ListTopicSummariesResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'ListTopicSummariesResponse'
+        );
     }
 
     async listCurriculumSummaries(
@@ -694,13 +818,10 @@ class SparxMaths extends SparxBase {
                 fullMessage
             );
 
-        const answerResponse =
-            await this.decodeStuff(
-                answerRequest.data,
-                'ListCurriculumSummariesResponse'
-            );
-
-        return answerResponse;
+        return await this.decodeStuff(
+            answerRequest.data,
+            'PackageDataResponse'
+        );
     }
 }
 
