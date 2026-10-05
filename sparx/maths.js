@@ -1,7 +1,8 @@
 const { decode, encode } = require('./sm_code.js');
 
-const { getClientSession } =
-    require('./send_maths.js');
+const {
+    getClientSession
+} = require('./send_maths.js');
 
 const {
     getTokenSparx,
@@ -53,6 +54,7 @@ class SparxMaths extends SparxBase {
                     uint8Array
                 );
 
+
             this.log.logToFile(
                 `**Response returned**\nStatus: ${response.status}\n${JSON.stringify(
                     response.headers,
@@ -66,7 +68,9 @@ class SparxMaths extends SparxBase {
              * Normal HTTP 401.
              */
 
-            if (response.status === 401) {
+            if (
+                response.status === 401
+            ) {
 
                 console.log(
                     '[Sparx] HTTP 401'
@@ -174,6 +178,10 @@ class SparxMaths extends SparxBase {
 
         } catch (err) {
 
+            /*
+             * Re-authenticate after 401.
+             */
+
             if (
                 err.response?.status === 401 &&
                 attempts > 1
@@ -205,7 +213,9 @@ class SparxMaths extends SparxBase {
                         );
 
 
-                    if (result?.cookies) {
+                    if (
+                        result?.cookies
+                    ) {
 
                         this.cookies =
                             result.cookies;
@@ -249,7 +259,9 @@ class SparxMaths extends SparxBase {
                 }
 
 
-                if (newAuthToken) {
+                if (
+                    newAuthToken
+                ) {
 
                     this.authToken =
                         newAuthToken;
@@ -277,6 +289,7 @@ class SparxMaths extends SparxBase {
 
                     await this.getClientSession();
 
+
                     console.log(
                         '[Sparx] ClientSession refreshed.'
                     );
@@ -292,10 +305,12 @@ class SparxMaths extends SparxBase {
 
 
             /*
-             * Retry normal transient errors.
+             * Retry transient errors.
              */
 
-            if (attempts > 1) {
+            if (
+                attempts > 1
+            ) {
 
                 await new Promise(
                     resolve =>
@@ -304,6 +319,7 @@ class SparxMaths extends SparxBase {
                             1500
                         )
                 );
+
 
                 return await this.send(
                     url,
@@ -360,7 +376,7 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * Remove an old session ID.
+         * Remove any previous session ID.
          */
 
         this.curlRequests.headers =
@@ -375,7 +391,7 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * Install the new session ID.
+         * Install the current session ID.
          */
 
         this.curlRequests.headers.push(
@@ -394,23 +410,143 @@ class SparxMaths extends SparxBase {
 
     /*
      * ============================================================
-     * HOMEWORK DIAGNOSTIC
+     * MODERN HOMEWORK API
+     * ============================================================
      *
-     * IMPORTANT:
-     * We are deliberately NOT pretending that the old
-     * GetPackageData endpoint is the modern homework endpoint.
-     *
-     * The browser capture showed:
+     * Sparx now loads student homework through:
      *
      * /sparx.packageactivity.v1.Packages/ListStudentPackages
      *
-     * but the uploaded sm_code.js does not contain that method's
-     * protobuf definition.
+     * The generated sm_code.js in this project does not contain
+     * the modern protobuf definitions.
      *
-     * Therefore this method only tests the existing protobuf
-     * definitions and gives us clean diagnostic output.
+     * Therefore the response is read as raw protobuf data and
+     * the package metadata strings are extracted from it.
      * ============================================================
      */
+
+    extractModernPackageStrings(buffer) {
+
+        const bytes =
+            buffer instanceof Uint8Array
+                ? buffer
+                : new Uint8Array(buffer);
+
+
+        /*
+         * Remove the 5-byte gRPC-Web message header.
+         */
+
+        if (
+            bytes.length >= 5
+        ) {
+
+            const view =
+                new DataView(
+                    bytes.buffer,
+                    bytes.byteOffset,
+                    bytes.byteLength
+                );
+
+
+            const messageLength =
+                view.getUint32(
+                    1
+                );
+
+
+            if (
+                bytes[0] === 0 &&
+                messageLength <=
+                    bytes.length - 5
+            ) {
+
+                return this.extractPrintableStringsFromBytes(
+                    bytes.slice(
+                        5,
+                        5 + messageLength
+                    )
+                );
+            }
+        }
+
+
+        return this.extractPrintableStringsFromBytes(
+            bytes
+        );
+    }
+
+
+    extractPrintableStringsFromBytes(bytes) {
+
+        const strings = [];
+
+        let current = [];
+
+
+        const flush = () => {
+
+            if (
+                current.length < 2
+            ) {
+
+                current = [];
+
+                return;
+            }
+
+
+            const value =
+                Buffer
+                    .from(current)
+                    .toString('utf8')
+                    .replace(
+                        /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g,
+                        ''
+                    )
+                    .trim();
+
+
+            if (
+                value.length >= 2
+            ) {
+
+                strings.push(
+                    value
+                );
+            }
+
+
+            current = [];
+        };
+
+
+        for (
+            const byte of bytes
+        ) {
+
+            if (
+                byte >= 32 &&
+                byte <= 126
+            ) {
+
+                current.push(
+                    byte
+                );
+
+            } else {
+
+                flush();
+            }
+        }
+
+
+        flush();
+
+
+        return strings;
+    }
+
 
     async getHomeworks() {
 
@@ -419,7 +555,7 @@ class SparxMaths extends SparxBase {
         );
 
         console.log(
-            '[Sparx] HOMEWORK DIAGNOSTIC START'
+            '[Sparx] MODERN HOMEWORK API'
         );
 
         console.log(
@@ -428,10 +564,12 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * Make absolutely sure ClientSession exists.
+         * Make sure ClientSession exists.
          */
 
-        if (!this.sessionId) {
+        if (
+            !this.sessionId
+        ) {
 
             console.log(
                 '[Sparx] No ClientSession found. Creating one...'
@@ -442,161 +580,250 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * --------------------------------------------------------
-         * OLD PackageData endpoint
-         * --------------------------------------------------------
+         * Empty protobuf request.
          *
-         * This is retained ONLY as a diagnostic comparison.
+         * gRPC-Web frame:
+         *
+         * byte 0    = data frame
+         * bytes 1-4 = message length = 0
          */
 
-        const inputObject = {
-
-            includeAllActivePackages: true,
-
-            getPackages: true,
-
-            getTasks: false,
-
-            getTaskItems: false,
-
-            packageID: '',
-
-            taskIndex: 0,
-
-            taskItemIndex: 0
-        };
+        const request =
+            Buffer.from([
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x00
+            ]);
 
 
         console.log(
-            '[Sparx] Encoding PackageDataRequest...'
-        );
-
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'PackageDataRequest'
-            );
-
-
-        console.log(
-            '[Sparx] PackageDataRequest bytes:',
-            fullMessage.length
+            '[Sparx] Calling ListStudentPackages...'
         );
 
 
         const response =
             await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-                fullMessage
+                'https://api.sparx-learning.com/sparx.packageactivity.v1.Packages/ListStudentPackages',
+                request
             );
 
 
         console.log(
-            '[Sparx] Old GetPackageData HTTP:',
+            '[Sparx] ListStudentPackages HTTP:',
             response?.status
         );
 
 
         console.log(
-            '[Sparx] Old GetPackageData bytes:',
-            response?.data?.length
+            '[Sparx] ListStudentPackages bytes:',
+            response?.data?.length || 0
         );
 
 
         if (
-            response?.data
+            !response?.data
         ) {
 
-            const result =
-                await this.decodeStuff(
-                    response.data,
-                    'PackageDataResponse'
-                );
-
-
             console.log(
-                '[Sparx] OLD API decoded result:'
+                '[Sparx] ListStudentPackages returned no data.'
             );
 
-            console.log(
-                JSON.stringify(
-                    {
-                        packageCount:
-                            result?.packages?.length || 0,
-
-                        taskCount:
-                            result?.tasks?.length || 0,
-
-                        taskItemCount:
-                            result?.taskItems?.length || 0
-                    },
-                    null,
-                    2
-                )
-            );
-
-
-            /*
-             * Show only safe structural information.
-             * Do not dump cookies, tokens or credentials.
-             */
-
-            if (
-                result?.packages?.length
-            ) {
-
-                console.log(
-                    '[Sparx] Old API packages found.'
-                );
-
-                console.log(
-                    JSON.stringify(
-                        result.packages.slice(
-                            0,
-                            5
-                        ),
-                        null,
-                        2
-                    )
-                );
-
-            } else {
-
-                console.log(
-                    '[Sparx] Old API returned ZERO packages.'
-                );
-            }
-
-
-            /*
-             * Return the structure expected by the current
-             * executor so the rest of the bot does not crash.
-             */
 
             return {
 
-                packages:
-                    result?.packages || [],
+                packages: [],
 
-                tasks:
-                    result?.tasks || [],
+                tasks: [],
 
-                taskItems:
-                    result?.taskItems || []
+                taskItems: []
 
             };
         }
 
 
+        const strings =
+            this.extractModernPackageStrings(
+                response.data
+            );
+
+
         console.log(
-            '[Sparx] GetPackageData returned no data.'
+            '[Sparx] Modern package strings:',
+            strings.length
+        );
+
+
+        /*
+         * The response contains entries similar to:
+         *
+         * packages/<UUID>
+         *
+         * followed by package metadata.
+         */
+
+        const packages = [];
+
+        let currentPackage = null;
+
+
+        for (
+            const value of strings
+        ) {
+
+            const packageMatch =
+                value.match(
+                    /(?:^|[^a-zA-Z0-9])packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+                );
+
+
+            if (
+                packageMatch
+            ) {
+
+                if (
+                    currentPackage
+                ) {
+
+                    packages.push(
+                        currentPackage
+                    );
+                }
+
+
+                currentPackage = {
+
+                    packageID:
+                        packageMatch[1],
+
+                    title:
+                        'Homework',
+
+                    numTaskItems:
+                        0,
+
+                    numTaskItemsDone:
+                        0,
+
+                    numTasks:
+                        0,
+
+                    numTasksComplete:
+                        0
+
+                };
+
+
+                continue;
+            }
+
+
+            /*
+             * Capture homework titles.
+             */
+
+            if (
+                currentPackage &&
+                (
+                    /^#?Homework\b/i.test(
+                        value
+                    ) ||
+                    /\bHomework\b/i.test(
+                        value
+                    )
+                )
+            ) {
+
+                const cleaned =
+                    value
+                        .replace(
+                            /^#/,
+                            ''
+                        )
+                        .trim();
+
+
+                if (
+                    cleaned.length > 0 &&
+                    cleaned.length < 250
+                ) {
+
+                    currentPackage.title =
+                        cleaned;
+                }
+            }
+        }
+
+
+        if (
+            currentPackage
+        ) {
+
+            packages.push(
+                currentPackage
+            );
+        }
+
+
+        /*
+         * Remove duplicate package IDs.
+         */
+
+        const uniquePackages = [];
+
+        const seen =
+            new Set();
+
+
+        for (
+            const pkg of packages
+        ) {
+
+            if (
+                !pkg.packageID ||
+                seen.has(
+                    pkg.packageID
+                )
+            ) {
+
+                continue;
+            }
+
+
+            seen.add(
+                pkg.packageID
+            );
+
+
+            uniquePackages.push(
+                pkg
+            );
+        }
+
+
+        console.log(
+            '[Sparx] Modern packages found:',
+            uniquePackages.length
+        );
+
+
+        console.log(
+            JSON.stringify(
+                uniquePackages.slice(
+                    0,
+                    10
+                ),
+                null,
+                2
+            )
         );
 
 
         return {
 
-            packages: [],
+            packages:
+                uniquePackages,
 
             tasks: [],
 
@@ -611,9 +838,9 @@ class SparxMaths extends SparxBase {
      * OLD TASK METHODS
      * ============================================================
      *
-     * These remain untouched for now.
+     * These are kept for compatibility with the existing project.
+     * ============================================================
      */
-
 
     async getTasksItems(
         packageID,
@@ -815,10 +1042,7 @@ class SparxMaths extends SparxBase {
      * ============================================================
      * ACTIVITY ACTIONS
      * ============================================================
-     *
-     * Kept for compatibility with the existing project.
      */
-
 
     async answerQuestion(
         inputObject
