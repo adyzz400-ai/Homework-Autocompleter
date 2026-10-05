@@ -581,6 +581,7 @@ async function getCookies(
                   let payload =
                     body;
 
+                  // Remove the 5-byte gRPC-Web frame.
                   if (
                     body.length >= 5
                   ) {
@@ -601,6 +602,27 @@ async function getCookies(
 
                   addLog(
                     `[Sparx Packages] request-payload-size=${payload.length}`
+                  );
+
+                  // ------------------------------------------------
+                  // NEW: ACTUAL PROTOBUF REQUEST PAYLOAD
+                  // ------------------------------------------------
+
+                  addLog(
+                    `[Sparx Packages] request-payload-hex=${payload.toString('hex')}`
+                  );
+
+                  addLog(
+                    `[Sparx Packages] request-payload-base64=${payload.toString('base64')}`
+                  );
+
+                  // ------------------------------------------------
+                  // Basic protobuf byte diagnostics.
+                  // This does NOT decode or modify the request.
+                  // ------------------------------------------------
+
+                  addLog(
+                    `[Sparx Packages] request-first-bytes=${payload.subarray(0, 64).toString('hex')}`
                   );
                 }
 
