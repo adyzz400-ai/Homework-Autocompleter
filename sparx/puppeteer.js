@@ -1460,25 +1460,47 @@ async function getCookies(
         const cookieString =
           `live_ssoprovider_session=${live.value}; spxlrn_session=${spx.value}`;
 
-                addLog(
-          'Login successful, cookies validated.'
-        );
-
-        // ======================================================
-        // WAIT FOR AUTHENTICATED SPARX PAGE
-        // ======================================================
-
-        addLog(
-          '[Sparx Packages] Waiting for authenticated homework request...'
-        );
-
-        // DO NOT page.goto() to maths.sparx-learning.com here.
-        // The normal login navigation has already taken us there.
-        await delay(5000);
-
-        addLog(
-          `[Sparx Packages] Final browser URL: ${page.url()}`
-        );
+                          addLog(
+            'Login successful, cookies validated.'
+          );
+          
+          // ======================================================
+          // TRIGGER MODERN HOMEWORK REQUEST
+          // ======================================================
+          
+          addLog(
+            '[Sparx Packages] Reloading authenticated Maths page...'
+          );
+          
+          try {
+          
+            await page.reload({
+              waitUntil: 'domcontentloaded',
+              timeout: 30000
+            });
+          
+            addLog(
+              `[Sparx Packages] Authenticated Maths page reloaded: ${page.url()}`
+            );
+          
+          } catch (error) {
+          
+            addLog(
+              `[Sparx Packages] Maths reload warning: ${error.message}`
+            );
+          
+          }
+          
+          // Give the Sparx React app time to make its API requests.
+          addLog(
+            '[Sparx Packages] Waiting for ListStudentPackages response...'
+          );
+          
+          await delay(10000);
+          
+          addLog(
+            `[Sparx Packages] Final browser URL: ${page.url()}`
+          );
 
         // ======================================================
         // CLOSE BROWSER AND RETURN COOKIES
