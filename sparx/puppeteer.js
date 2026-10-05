@@ -554,8 +554,11 @@ async function getCookies(
               )
             ) {
               try {
-                const body =
-                  request.postDataBuffer();
+                const postData = request.postData();
+
+                 const body = postData
+                    ? Buffer.from(postData, 'binary')
+                    : null;
 
                 addLog(
                   '[Sparx Packages] REQUEST detected'
