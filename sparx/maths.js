@@ -605,7 +605,7 @@ class SparxMaths extends SparxBase {
 
         const response =
             await this.send(
-                'https://api.sparx-learning.com/sparx.packageactivity.v1.Packages/ListStudentPackages',
+                'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/ListStudentPackages',
                 request
             );
 
