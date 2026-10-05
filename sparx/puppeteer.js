@@ -270,7 +270,8 @@ async function findSchoolInput(
   ];
 
   for (
-    const selector of selectors
+    const selector of
+    selectors
   ) {
     try {
       await page.waitForSelector(
@@ -532,16 +533,86 @@ async function getCookies(
           'Browser launched and new page created.'
         );
 
+        addLog(
+          'Screencast disabled.'
+        );
+
 
         // ======================================================
         // REAL SPARX PACKAGE REQUEST DIAGNOSTIC
-        //
-        // IMPORTANT:
-        // We DO NOT navigate to maths.sparx-learning.com here.
-        //
-        // The normal authenticated navigation is allowed to
-        // trigger ListStudentPackages itself.
         // ======================================================
+
+        page.on(
+          'request',
+          request => {
+            const url =
+              request.url();
+
+            if (
+              url.includes(
+                '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
+              )
+            ) {
+              try {
+                const body =
+                  request.postDataBuffer();
+
+                addLog(
+                  '[Sparx Packages] REQUEST detected'
+                );
+
+                addLog(
+                  `[Sparx Packages] request-method=${request.method()}`
+                );
+
+                addLog(
+                  `[Sparx Packages] request-content-type=${
+                    request.headers()['content-type'] || 'unknown'
+                  }`
+                );
+
+                addLog(
+                  `[Sparx Packages] request-size=${
+                    body ? body.length : 0
+                  }`
+                );
+
+                if (body) {
+                  let payload =
+                    body;
+
+                  if (
+                    body.length >= 5
+                  ) {
+                    const messageLength =
+                      body.readUInt32BE(1);
+
+                    if (
+                      messageLength <=
+                      body.length - 5
+                    ) {
+                      payload =
+                        body.subarray(
+                          5,
+                          5 + messageLength
+                        );
+                    }
+                  }
+
+                  addLog(
+                    `[Sparx Packages] request-payload-size=${payload.length}`
+                  );
+                }
+
+              } catch (error) {
+                addLog(
+                  `[Sparx Packages] request diagnostic error: ${error.message}`
+                );
+              }
+            }
+          }
+        );
+
 
         page.on(
           'response',
@@ -559,14 +630,16 @@ async function getCookies(
                   await response.buffer();
 
                 addLog(
+                  '[Sparx Packages] RESPONSE detected'
+                );
+
+                addLog(
                   `[Sparx Packages] status=${response.status()}`
                 );
 
                 addLog(
                   `[Sparx Packages] content-type=${
-                    response.headers()[
-                      'content-type'
-                    ] || 'unknown'
+                    response.headers()['content-type'] || 'unknown'
                   }`
                 );
 
@@ -577,15 +650,11 @@ async function getCookies(
                 let payload =
                   body;
 
-                // gRPC-Web response:
-                // 1 byte flag + 4 byte message length
                 if (
                   body.length >= 5
                 ) {
                   const messageLength =
-                    body.readUInt32BE(
-                      1
-                    );
+                    body.readUInt32BE(1);
 
                   if (
                     messageLength <=
@@ -627,7 +696,7 @@ async function getCookies(
 
               } catch (error) {
                 addLog(
-                  `[Sparx Packages] diagnostic error: ${error.message}`
+                  `[Sparx Packages] response diagnostic error: ${error.message}`
                 );
               }
             }
@@ -760,15 +829,6 @@ async function getCookies(
 
 
         // ======================================================
-        // SCREencast DISABLED
-        // ======================================================
-
-        addLog(
-          'Screencast disabled.'
-        );
-
-
-        // ======================================================
         // SCHOOL PAGE
         // ======================================================
 
@@ -786,7 +846,6 @@ async function getCookies(
         );
 
 
-        // Remove cookie overlay if present.
         await page.evaluate(
           () => {
             const el =
@@ -1162,10 +1221,6 @@ async function getCookies(
             'normal'
         ) {
 
-          // ----------------------------------------------------
-          // SSO LOGIN
-          // ----------------------------------------------------
-
           await safeClick(
             page,
             '.sm-button.sso-login-button'
@@ -1332,14 +1387,7 @@ async function getCookies(
 
 
         // ======================================================
-        // IMPORTANT:
-        // DO NOT page.goto() TO MATHS HERE.
-        //
-        // The previous diagnostic navigation caused Sparx to
-        // return to OAuth/auth and destroyed the valid cookies.
-        //
-        // We simply allow the existing authenticated page to
-        // finish loading naturally.
+        // DO NOT NAVIGATE TO MATHS MANUALLY
         // ======================================================
 
         addLog(
@@ -1393,6 +1441,22 @@ async function getCookies(
         addLog(
           'Login successful, cookies validated.'
         );
+
+
+        // ======================================================
+        // WAIT FOR REAL HOMEWORK REQUEST
+        // ======================================================
+
+        addLog(
+          '[Sparx Packages] Waiting for authenticated homework request...'
+        );
+
+        await delay(5000);
+
+        addLog(
+          `[Sparx Packages] Final browser URL: ${page.url()}`
+        );
+
 
         await browser.close();
 
