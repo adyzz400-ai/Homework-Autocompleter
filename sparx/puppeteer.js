@@ -1464,82 +1464,66 @@ async function getCookies(
           'Login successful, cookies validated.'
         );
 
+ // ======================================================
+// TRIGGER AUTHENTICATED MATHS PAGE
+// ======================================================
 
-        // ======================================================
-        // WAIT FOR REAL HOMEWORK REQUEST
-        // ======================================================
+addLog(
+  '[Sparx Packages] Loading authenticated maths page...'
+);
 
-        addLog(
-          '[Sparx Packages] Waiting for authenticated homework request...'
-        );
+try {
+  const currentUrl = page.url();
 
-        await delay(5000);
+  if (
+    currentUrl.includes('maths.sparx-learning.com')
+  ) {
+    addLog(
+      '[Sparx Packages] Reloading authenticated maths page...'
+    );
 
-        addLog(
-          `[Sparx Packages] Final browser URL: ${page.url()}`
-        );
+    await page.reload({
+      waitUntil: 'domcontentloaded',
+      timeout: 30000
+    });
+  } else {
+    addLog(
+      '[Sparx Packages] Navigating to authenticated maths page...'
+    );
 
-
-        await browser.close();
-
-        browser =
-          null;
-
-        return cookieString;
-
-      } catch (err) {
-
-        const attemptMsg =
-          `Attempt ${attempt} failed: ${err.message}`;
-
-        console.log(
-          attemptMsg
-        );
-
-        addLog(
-          attemptMsg
-        );
-
-        if (browser) {
-          await browser.close()
-            .catch(() => {});
-
-          browser =
-            null;
-        }
-
-        emailTypeStatus =
-          smartLoginVar.filledEmail;
-
-        passTypeStatus =
-          smartLoginVar.filledPassword;
-
-        return {
-          status: 'error',
-          schoolStatus,
-          loginTypeStatus,
-          emailTypeStatus,
-          passTypeStatus
-        };
+    await page.goto(
+      'https://maths.sparx-learning.com/student',
+      {
+        waitUntil: 'domcontentloaded',
+        timeout: 30000
       }
-
-    } catch (err) {
-
-      console.error(
-        '[Sparx Login] Unexpected error:',
-        err
-      );
-
-      return {
-        status: 'error',
-        schoolStatus: false,
-        loginTypeStatus: false,
-        emailTypeStatus: false,
-        passTypeStatus: false
-      };
-    }
+    );
   }
+
+  addLog(
+    `[Sparx Packages] Authenticated maths page loaded: ${page.url()}`
+  );
+
+} catch (error) {
+  addLog(
+    `[Sparx Packages] Maths page navigation warning: ${error.message}`
+  );
 }
+
+
+// ======================================================
+// WAIT FOR REAL HOMEWORK REQUEST
+// ======================================================
+
+addLog(
+  '[Sparx Packages] Waiting for authenticated homework request...'
+);
+
+await delay(10000);
+
+addLog(
+  `[Sparx Packages] Final browser URL: ${page.url()}`
+);
 
 
 // ============================================================
