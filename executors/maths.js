@@ -65,9 +65,15 @@ async function mathsExecuter(
 
 
     const sortByEndDateDesc =
-        (a, b) =>
-            b.endDate.seconds -
-            a.endDate.seconds;
+    (a, b) => {
+        const aSeconds =
+            Number(a?.endDate?.seconds) || 0;
+
+        const bSeconds =
+            Number(b?.endDate?.seconds) || 0;
+
+        return bSeconds - aSeconds;
+    };
 
 
     const onlyHomeworks =
