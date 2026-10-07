@@ -64,10 +64,6 @@ class SparxMaths extends SparxBase {
             );
 
 
-            /*
-             * Normal HTTP 401.
-             */
-
             if (
                 response.status === 401
             ) {
@@ -88,10 +84,6 @@ class SparxMaths extends SparxBase {
                 throw err;
             }
 
-
-            /*
-             * gRPC errors.
-             */
 
             const grpcStatus =
                 response.headers?.[
@@ -178,10 +170,6 @@ class SparxMaths extends SparxBase {
 
         } catch (err) {
 
-            /*
-             * Re-authenticate after 401.
-             */
-
             if (
                 err.response?.status === 401 &&
                 attempts > 1
@@ -194,10 +182,6 @@ class SparxMaths extends SparxBase {
 
                 let newAuthToken;
 
-
-                /*
-                 * Full login information available.
-                 */
 
                 if (
                     this.login?.school
@@ -237,10 +221,6 @@ class SparxMaths extends SparxBase {
                     }
 
                 } else {
-
-                    /*
-                     * Existing cookies.
-                     */
 
                     newAuthToken =
                         await getTokenRequest(
@@ -303,10 +283,6 @@ class SparxMaths extends SparxBase {
                 );
             }
 
-
-            /*
-             * Retry transient errors.
-             */
 
             if (
                 attempts > 1
@@ -375,10 +351,6 @@ class SparxMaths extends SparxBase {
             response.sessionId;
 
 
-        /*
-         * Remove any previous session ID.
-         */
-
         this.curlRequests.headers =
             this.curlRequests.headers.filter(
                 header =>
@@ -389,10 +361,6 @@ class SparxMaths extends SparxBase {
                         )
             );
 
-
-        /*
-         * Install the current session ID.
-         */
 
         this.curlRequests.headers.push(
             `x-session-id: ${this.sessionId}`
@@ -413,15 +381,13 @@ class SparxMaths extends SparxBase {
      * MODERN HOMEWORK API
      * ============================================================
      *
-     * Sparx now loads student homework through:
+     * Current Sparx endpoint:
      *
      * /sparx.packageactivity.v1.Packages/ListStudentPackages
      *
-     * The generated sm_code.js in this project does not contain
-     * the modern protobuf definitions.
-     *
-     * Therefore the response is read as raw protobuf data and
-     * the package metadata strings are extracted from it.
+     * The generated sm_code.js currently doesn't contain the
+     * modern protobuf definitions, so the response is inspected
+     * as raw protobuf data.
      * ============================================================
      */
 
@@ -434,7 +400,7 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * Remove the 5-byte gRPC-Web message header.
+         * Remove gRPC-Web header.
          */
 
         if (
@@ -582,10 +548,10 @@ class SparxMaths extends SparxBase {
         /*
          * Empty protobuf request.
          *
-         * gRPC-Web frame:
+         * gRPC-Web:
          *
          * byte 0    = data frame
-         * bytes 1-4 = message length = 0
+         * bytes 1-4 = message length
          */
 
         const request =
@@ -632,13 +598,9 @@ class SparxMaths extends SparxBase {
 
 
             return {
-
                 packages: [],
-
                 tasks: [],
-
                 taskItems: []
-
             };
         }
 
@@ -656,12 +618,19 @@ class SparxMaths extends SparxBase {
 
 
         /*
-         * The response contains entries similar to:
-         *
-         * packages/<UUID>
-         *
-         * followed by package metadata.
+         * Debug the actual printable data returned by Sparx.
          */
+
+        console.log(
+            '[Sparx] Modern package strings sample:',
+            JSON.stringify(
+                strings.slice(
+                    0,
+                    100
+                )
+            )
+        );
+
 
         const packages = [];
 
@@ -837,9 +806,6 @@ class SparxMaths extends SparxBase {
      * ============================================================
      * OLD TASK METHODS
      * ============================================================
-     *
-     * These are kept for compatibility with the existing project.
-     * ============================================================
      */
 
     async getTasksItems(
@@ -950,13 +916,9 @@ class SparxMaths extends SparxBase {
         ) {
 
             return {
-
                 packages: [],
-
                 tasks: [],
-
                 taskItems: []
-
             };
         }
 
@@ -1034,144 +996,6 @@ class SparxMaths extends SparxBase {
         return await this.decodeStuff(
             response.data,
             'Activity'
-        );
-    }
-
-
-    /*
-     * ============================================================
-     * ACTIVITY ACTIONS
-     * ============================================================
-     */
-
-    async answerQuestion(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'ActivityAction'
-            );
-
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/ActivityAction',
-                fullMessage
-            );
-
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
-
-        return await this.decodeStuff(
-            response.data,
-            'ActivityActionResponse'
-        );
-    }
-
-
-    async readyQuestion(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'ActivityAction'
-            );
-
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/ActivityAction',
-                fullMessage
-            );
-
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
-
-        return await this.decodeStuff(
-            response.data,
-            'ActivityActionResponse'
-        );
-    }
-
-
-    async startTimesTable(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'GetActivityRequest'
-            );
-
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetActivity',
-                fullMessage
-            );
-
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
-
-        return await this.decodeStuff(
-            response.data,
-            'ActivityAction'
-        );
-    }
-
-
-    async answerTimesTable(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'ActivityAction'
-            );
-
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/ActivityAction',
-                fullMessage
-            );
-
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
-
-        return await this.decodeStuff(
-            response.data,
-            'ActivityActionResponse'
         );
     }
 
