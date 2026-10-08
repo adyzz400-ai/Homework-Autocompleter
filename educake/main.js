@@ -190,15 +190,14 @@ async function educake_autocompleter(
         );
 
     if (
-        if (
     await progressUpdater.start(
         initialEmbed,
         row,
         homeworksProgress
-        )
-    ) {
-        return;
-    }
+    )
+) {
+    return;
+}
 
     // ======================================================
     // CANCEL BUTTON
