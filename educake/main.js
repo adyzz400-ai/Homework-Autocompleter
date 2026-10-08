@@ -97,7 +97,8 @@ async function educake_autocompleter(
     userSession,
     retake,
     timeSettings,
-    selectedQuizzes
+    selectedQuizzes,
+    selectedQuizInfo = []
 ) {
     if (
         !selectedQuizzes ||
@@ -133,29 +134,30 @@ async function educake_autocompleter(
     // PROGRESS SECTIONS
     // ======================================================
 
-    const sectionsProgress = [];
-    let currentGroup = [];
-
-    for (const qId of selectedQuizzes) {
-        currentGroup.push({
-            name: `Quiz ${qId}`,
-            value: 'Waiting...'
-        });
-
-        if (currentGroup.length === 5) {
-            sectionsProgress.push(
-                currentGroup
+    const homeworksProgress =
+    selectedQuizzes.map(qId => {
+        const quiz =
+            selectedQuizInfo.find(
+                item =>
+                    String(item.id) ===
+                    String(qId)
             );
 
-            currentGroup = [];
-        }
-    }
+        return {
+            id: String(qId),
 
-    if (currentGroup.length > 0) {
-        sectionsProgress.push(
-            currentGroup
-        );
-    }
+            name:
+                quiz?.name ||
+                `Homework ${qId}`,
+
+            current: 0,
+
+            total:
+                Number(
+                    quiz?.questionCount
+                ) || 0
+        };
+    });
 
     // ======================================================
     // TRACKING
@@ -188,10 +190,11 @@ async function educake_autocompleter(
         );
 
     if (
-        await progressUpdater.start(
-            initialEmbed,
-            row,
-            sectionsProgress
+        if (
+    await progressUpdater.start(
+        initialEmbed,
+        row,
+        homeworksProgress
         )
     ) {
         return;
@@ -1309,14 +1312,17 @@ Time is the amount of time the bot will wait for each question. This is **PER QU
     educakeQueue.enqueue(
         componentInteraction.user.id,
         () =>
-            educake_autocompleter(
-                componentInteraction,
-                userSession,
-                this.menuStage ===
-                    'old',
-                this.timeSettings,
-                this.selectedQuizzes
-            )
+    educake_autocompleter(
+    componentInteraction,
+    userSession,
+    this.menuStage ===
+        'old',
+    this.timeSettings,
+    this.selectedQuizzes,
+    Object.values(
+        latestQuizes.attempts || {}
+    )
+)
     );
 
 if (
