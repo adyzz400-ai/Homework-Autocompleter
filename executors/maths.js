@@ -1,449 +1,753 @@
-const SparxMaths = require('../sparx/maths');
-const puppeteer = require('../sparx/puppeteer');
-const fs = require('fs');
-const path = require('path');
+const {
+    LabelBuilder,
+    ActionRowBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder
+} = require('discord.js');
 
-class MathsExecutor {
-    constructor() {
-        this.sessions = new Map();
-        this.activeHomeworkSessions = new Map();
-        this.homeworkCache = new Map();
+const {
+    MathsSession
+} = require('../userSessions.js');
+
+const {
+    useUpSlot,
+    cookieMenuCall,
+    getSparxAccountId,
+    positiveNounChanger
+} = require('./shared.js');
+
+const {
+    sparxMathsAutocomplete
+} = require('../sparx_maths/autocompleter.js');
+
+const {
+    handleSetting
+} = require('../settings/platforms/maths.js');
+
+const {
+    checkAccount
+} = require('../database/accounts.js');
+
+
+async function mathsExecuter(
+    interaction,
+    sparxMaths,
+    queue,
+    existingAccount
+) {
+
+    const {
+        UserSessions
+    } = require('../executeTasks.js');
+
+    const UserSession =
+        new MathsSession(
+            sparxMaths
+        );
+
+    UserSessions.set(
+        interaction.user.id,
+        UserSession
+    );
+
+    await sparxMaths.getClientSession();
+
+    const homeworks =
+        await sparxMaths.getHomeworks();
+
+    console.log(
+        'Homeworks',
+        homeworks
+    );
+
+
+    const sortByEndDateDesc =
+    (a, b) => {
+        const aSeconds =
+            Number(a?.endDate?.seconds) || 0;
+
+        const bSeconds =
+            Number(b?.endDate?.seconds) || 0;
+
+        return bSeconds - aSeconds;
+    };
+
+
+    const onlyHomeworks =
+        homeworks.packages
+            .filter(pkg =>
+                pkg.title.startsWith(
+                    'Homework'
+                )
+            )
+            .sort(
+                sortByEndDateDesc
+            );
+
+
+    const onlyXpBoosts =
+        homeworks.packages
+            .filter(pkg =>
+                pkg.title.startsWith(
+                    'XP Boost'
+                )
+            )
+            .sort(
+                sortByEndDateDesc
+            );
+
+
+    const onlyTargets =
+        homeworks.packages
+            .filter(pkg =>
+                pkg.title.startsWith(
+                    'Targets'
+                )
+            )
+            .sort(
+                sortByEndDateDesc
+            );
+
+
+    const orderedList = [
+        ...onlyHomeworks,
+        ...onlyXpBoosts,
+        ...onlyTargets
+    ];
+
+
+    const select =
+        new StringSelectMenuBuilder()
+            .setCustomId(
+                'sparxmaths_homework'
+            )
+            .setPlaceholder(
+                'Choose a homework task'
+            )
+            .setMinValues(0);
+
+
+    for (
+        const homework of orderedList
+    ) {
+
+        const total =
+            Number(
+                homework.numTaskItems
+            ) || 1;
+
+        const completed =
+            Number(
+                homework.numTaskItemsDone
+            ) || 0;
+
+        const percentage =
+            Math.round(
+                completed /
+                total *
+                100
+            );
+
+        select.addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel(
+                    homework.title
+                )
+                .setDescription(
+                    `${percentage}%`
+                )
+                .setValue(
+                    homework.packageID
+                )
+        );
     }
 
-    async executeLogin(school, username, password) {
-        try {
-            const { token, session_id } = await puppeteer.login(school, username, password);
-            
-            const session = new SparxMaths(school, username, password, token, session_id);
-            const sessionId = `sparx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            this.sessions.set(sessionId, session);
-            
-            // Validate session
-            const isValid = await session.validateSession();
-            
-            return {
-                success: true,
-                sessionId,
-                token,
-                session_id,
-                isValid
-            };
-        } catch (error) {
-            console.error('Login error:', error);
-            return {
-                success: false,
-                error: error.message
-            };
-        }
+
+    let userDisplayName;
+    let userInfo;
+
+    try {
+
+        userDisplayName =
+            await sparxMaths
+                .getUserDisplayName() ||
+            'User';
+
+        userInfo =
+            await sparxMaths.getUserInfo();
+
+    } catch {
+
+        userDisplayName =
+            'User';
+
+        userInfo = {
+            givenName:
+                'User'
+        };
     }
 
-    async getHomeworkList(sessionId, includeCompleted = false) {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-        
-        try {
-            const homeworkList = await session.getHomeworkList(includeCompleted);
-            
-            // Fix: Handle missing endDate fields safely
-            const sortedList = homeworkList.sort((a, b) => {
-                // Handle missing dates by treating them as far future
-                const dateA = a.dueDate ? new Date(a.dueDate) : new Date('9999-12-31');
-                const dateB = b.dueDate ? new Date(b.dueDate) : new Date('9999-12-31');
-                
-                // Handle invalid dates
-                if (isNaN(dateA.getTime())) return 1;
-                if (isNaN(dateB.getTime())) return -1;
-                
-                return dateA - dateB;
+
+    const givenName =
+        userInfo &&
+        userInfo.givenName
+            ? userInfo.givenName
+            : 'User';
+
+
+    /*
+     * Sparx Maths no longer requires
+     * a legacy SparxNow /account entry.
+     *
+     * These are the same defaults used by
+     * the normal Maths session.
+     */
+
+    const mathsSettings =
+        existingAccount?.sparx_maths_settings ||
+        {};
+
+    const min =
+        Number(
+            mathsSettings.min
+        ) || 60;
+
+    const max =
+        Number(
+            mathsSettings.max
+        ) || 100;
+
+    const pdfSettings =
+        mathsSettings.pdfSettings ||
+        {
+            question:
+                false,
+
+            working_out:
+                false
+        };
+
+    const model =
+        mathsSettings.model ||
+        '3.5-flash-lite';
+
+
+    UserSession.loadFromObject({
+        min,
+        max,
+
+        message_sent:
+            null,
+
+        interaction,
+
+        givenName,
+
+        userDisplayName,
+
+        selectRow:
+            select,
+
+        userInfo,
+
+        sparxMaths,
+
+        pdfSettings,
+
+        model
+    });
+
+
+    await UserSession.updateEmbed();
+
+
+    const collector =
+        UserSession.message_sent
+            .createMessageComponentCollector({
+                time:
+                    180_000
             });
-            
-            return sortedList;
-        } catch (error) {
-            console.error('Error getting homework list:', error);
-            
-            if (error.message.includes('401') || error.message.includes('Unauthorized')) {
-                // Try to refresh session
-                const refreshed = await this.refreshSession(sessionId);
-                if (refreshed) {
-                    return await this.getHomeworkList(sessionId, includeCompleted);
+
+
+    collector.on(
+        'collect',
+        async (
+            componentInteraction
+        ) => {
+
+            if (
+                componentInteraction
+                    .isStringSelectMenu()
+            ) {
+
+                await componentInteraction
+                    .deferUpdate();
+
+
+                const disabledSelect =
+                    new StringSelectMenuBuilder()
+                        .setCustomId(
+                            'sparxmaths_homework'
+                        )
+                        .setPlaceholder(
+                            'Choose a homework task'
+                        )
+                        .setMinValues(0);
+
+
+                for (
+                    const homework
+                    of homeworks.packages
+                ) {
+
+                    const total =
+                        Number(
+                            homework.numTasks
+                        ) || 1;
+
+                    const completed =
+                        Number(
+                            homework.numTasksComplete
+                        ) || 0;
+
+                    const percentage =
+                        Math.round(
+                            completed /
+                            total *
+                            100
+                        );
+
+
+                    const option =
+                        new StringSelectMenuOptionBuilder()
+                            .setLabel(
+                                homework.title
+                            )
+                            .setDescription(
+                                `${percentage}%`
+                            )
+                            .setValue(
+                                homework.packageID
+                            );
+
+
+                    if (
+                        homework.packageID ===
+                        componentInteraction.values[0]
+                    ) {
+
+                        option.setDefault(
+                            true
+                        );
+                    }
+
+
+                    disabledSelect.addOptions(
+                        option
+                    );
+                }
+
+
+                UserSession.selectRow =
+                    disabledSelect;
+
+                UserSession.selectedHomework =
+                    componentInteraction.values[0];
+
+
+                await UserSession.updateEmbed(
+                    false
+                );
+
+            }
+
+            else if (
+                componentInteraction.isButton()
+            ) {
+
+                if (
+                    componentInteraction.customId ===
+                    'start_maths'
+                ) {
+
+                    await componentInteraction
+                        .deferUpdate();
+
+
+                    await UserSession
+                        .updateEmbed(
+                            true
+                        );
+
+
+                    /*
+                     * useUpSlot() already safely
+                     * returns false when there is
+                     * no legacy account.
+                     */
+
+                    if (
+                        await useUpSlot(
+                            interaction,
+                            'maths',
+                            getSparxAccountId(
+                                UserSession.userInfo
+                            ),
+                            'sparx'
+                        )
+                    ) {
+
+                        return;
+                    }
+
+
+                    if (
+                        Object.keys(
+                            sparxMaths.login || {}
+                        ).length === 0
+                    ) {
+
+                        await cookieMenuCall(
+                            interaction,
+                            sparxMaths
+                        );
+                    }
+
+
+                    await queue.addQueue({
+                        action:
+                            async () => {
+
+                                return await
+                                    sparxMathsAutocomplete(
+                                        componentInteraction,
+                                        UserSession.selectedHomework,
+                                        sparxMaths,
+                                        UserSession
+                                    );
+                            },
+
+                        id:
+                            interaction.user.id,
+
+                        interaction
+                    });
+
+
+                    await interaction.followUp({
+                        flags:
+                            64,
+
+                        content:
+                            'You have been added to the queue'
+                    });
+                }
+
+
+                else if (
+                    componentInteraction.customId ===
+                    'independent_learning'
+                ) {
+
+                    const modal =
+                        new ModalBuilder()
+                            .setCustomId(
+                                'sparxmaths_independant_learning'
+                            )
+                            .setTitle(
+                                'Independant Learning Code'
+                            );
+
+
+                    const curriculums =
+                        await sparxMaths
+                            .listCurriculumSummaries({
+                                includeHidden:
+                                    false,
+
+                                subjectName:
+                                    ''
+                            });
+
+
+                    const curriculumInput =
+                        new StringSelectMenuBuilder()
+                            .setCustomId(
+                                'curriculum'
+                            )
+                            .setPlaceholder(
+                                'Curriculum'
+                            );
+
+
+                    for (
+                        const cur
+                        of curriculums
+                            .curriculumSummaries
+                    ) {
+
+                        curriculumInput.addOptions({
+                            label:
+                                cur.curriculum
+                                    .displayName,
+
+                            value:
+                                cur.curriculum
+                                    .name
+                        });
+                    }
+
+
+                    const levelInput =
+                        new StringSelectMenuBuilder()
+                            .setCustomId(
+                                'level'
+                            )
+                            .setPlaceholder(
+                                'Level'
+                            )
+                            .addOptions(
+                                {
+                                    label:
+                                        'Level 1',
+                                    value:
+                                        '1'
+                                },
+                                {
+                                    label:
+                                        'Level 2',
+                                    value:
+                                        '2'
+                                },
+                                {
+                                    label:
+                                        'Level 3',
+                                    value:
+                                        '3'
+                                },
+                                {
+                                    label:
+                                        'Level 4',
+                                    value:
+                                        '4'
+                                },
+                                {
+                                    label:
+                                        'Level 5',
+                                    value:
+                                        '5'
+                                }
+                            );
+
+
+                    const curriculumLabel =
+                        new LabelBuilder({
+                            label:
+                                'Curriculum',
+
+                            component:
+                                curriculumInput
+                        });
+
+
+                    const levelLabel =
+                        new LabelBuilder({
+                            label:
+                                'Level',
+
+                            component:
+                                levelInput
+                        });
+
+
+                    const cookieInput =
+                        new TextInputBuilder()
+                            .setCustomId(
+                                'code'
+                            )
+                            .setLabel(
+                                'Code'
+                            )
+                            .setStyle(
+                                TextInputStyle.Short
+                            );
+
+
+                    modal.addLabelComponents(
+                        curriculumLabel
+                    );
+
+                    modal.addComponents(
+                        new ActionRowBuilder()
+                            .addComponents(
+                                cookieInput
+                            )
+                    );
+
+                    modal.addLabelComponents(
+                        levelLabel
+                    );
+
+
+                    await componentInteraction
+                        .showModal(
+                            modal
+                        );
+                }
+
+
+                else if (
+                    componentInteraction.customId ===
+                    'save_account'
+                ) {
+
+                    /*
+                     * Saving an account still belongs
+                     * to the legacy account system.
+                     * Keep it available only when an
+                     * account actually exists.
+                     */
+
+                    if (!existingAccount) {
+
+                        await componentInteraction
+                            .reply({
+                                flags:
+                                    64,
+
+                                content:
+                                    'Account saving is not available in the Discord-only Sparx Maths login flow.'
+                            });
+
+                        return;
+                    }
+
+
+                    const modal =
+                        new ModalBuilder()
+                            .setCustomId(
+                                'save_account'
+                            )
+                            .setTitle(
+                                'Save Account'
+                            );
+
+
+                    const input =
+                        new TextInputBuilder()
+                            .setCustomId(
+                                'master_password'
+                            )
+                            .setLabel(
+                                'Master Password'
+                            )
+                            .setStyle(
+                                TextInputStyle.Short
+                            )
+                            .setRequired(
+                                true
+                            );
+
+
+                    modal.addComponents(
+                        new ActionRowBuilder()
+                            .addComponents(
+                                input
+                            )
+                    );
+
+
+                    await componentInteraction
+                        .showModal(
+                            modal
+                        );
+                }
+
+
+                else if (
+                    componentInteraction.customId ===
+                    'tag_changer'
+                ) {
+
+                    await positiveNounChanger(
+                        componentInteraction,
+                        givenName,
+                        userDisplayName,
+                        UserSession
+                    );
+                }
+
+
+                else if (
+                    componentInteraction.customId ===
+                    'settings'
+                ) {
+
+                    /*
+                     * Settings use the old account
+                     * settings database.
+                     */
+
+                    if (!existingAccount) {
+
+                        await componentInteraction
+                            .reply({
+                                flags:
+                                    64,
+
+                                content:
+                                    'Settings are not available until a SparxNow account is configured.'
+                            });
+
+                        return;
+                    }
+
+
+                    await componentInteraction
+                        .deferReply({
+                            flags:
+                                64
+                        });
+
+
+                    const account =
+                        await checkAccount(
+                            componentInteraction
+                                .user.id
+                        );
+
+
+                    await handleSetting(
+                        componentInteraction,
+                        account
+                    );
                 }
             }
-            
-            throw error;
         }
-    }
+    );
 
-    async startHomework(sessionId, packageId) {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-        
-        try {
-            const homeworkSession = await session.startHomeworkSession(packageId);
-            const homeworkSessionId = homeworkSession.sessionId;
-            
-            this.activeHomeworkSessions.set(homeworkSessionId, {
-                sparxSessionId: sessionId,
-                session: homeworkSession,
-                packageId
-            });
-            
-            // Get initial task
-            const currentTask = session.getCurrentTask(homeworkSessionId);
-            const progress = session.getHomeworkProgress(homeworkSessionId);
-            
-            return {
-                success: true,
-                homeworkSessionId,
-                packageId,
-                currentTask,
-                progress,
-                message: `Started homework: ${currentTask.assignmentTitle}`
-            };
-        } catch (error) {
-            console.error('Error starting homework:', error);
-            throw error;
-        }
-    }
 
-    async getCurrentHomeworkTask(homeworkSessionId) {
-        const homeworkData = this.activeHomeworkSessions.get(homeworkSessionId);
-        if (!homeworkData) {
-            throw new Error('Homework session not found');
-        }
-        
-        const session = this.sessions.get(homeworkData.sparxSessionId);
-        if (!session) {
-            throw new Error('Sparx session not found');
-        }
-        
-        const currentTask = session.getCurrentTask(homeworkSessionId);
-        if (!currentTask) {
-            // Check if homework is complete
-            const sessionData = session.homeworkSessions.get(homeworkSessionId);
-            if (sessionData && sessionData.completed) {
-                return {
-                    completed: true,
-                    message: 'Homework completed!',
-                    session: sessionData
-                };
-            }
-            throw new Error('No current task available');
-        }
-        
-        const progress = session.getHomeworkProgress(homeworkSessionId);
-        
-        return {
-            success: true,
-            currentTask,
-            progress,
-            homeworkSessionId
-        };
-    }
+    collector.on(
+        'end',
+        async () => {
 
-    async submitHomeworkAnswer(homeworkSessionId, answer) {
-        const homeworkData = this.activeHomeworkSessions.get(homeworkSessionId);
-        if (!homeworkData) {
-            throw new Error('Homework session not found');
-        }
-        
-        const session = this.sessions.get(homeworkData.sparxSessionId);
-        if (!session) {
-            throw new Error('Sparx session not found');
-        }
-        
-        try {
-            const result = await session.submitAnswer(homeworkSessionId, answer);
-            
-            // Update cache
-            this.homeworkCache.delete(`progress_${homeworkSessionId}`);
-            
-            return result;
-        } catch (error) {
-            console.error('Error submitting answer:', error);
-            
-            if (error.message.includes('401') || error.message.includes('Unauthorized')) {
-                const refreshed = await this.refreshSession(homeworkData.sparxSessionId);
-                if (refreshed) {
-                    return await this.submitHomeworkAnswer(homeworkSessionId, answer);
-                }
-            }
-            
-            throw error;
-        }
-    }
+            select.setDisabled(
+                true
+            );
 
-    async getHomeworkDashboard(homeworkSessionId) {
-        const homeworkData = this.activeHomeworkSessions.get(homeworkSessionId);
-        if (!homeworkData) {
-            throw new Error('Homework session not found');
-        }
-        
-        const session = this.sessions.get(homeworkData.sparxSessionId);
-        if (!session) {
-            throw new Error('Sparx session not found');
-        }
-        
-        // Check cache first
-        const cacheKey = `dashboard_${homeworkSessionId}`;
-        const cached = this.homeworkCache.get(cacheKey);
-        
-        if (cached && (Date.now() - cached.timestamp < 5000)) { // 5 second cache for dashboard
-            return cached.data;
-        }
-        
-        const dashboard = session.getHomeworkDashboard(homeworkSessionId);
-        if (!dashboard) {
-            return {
-                error: 'No active homework session',
-                sessionId: homeworkSessionId
-            };
-        }
-        
-        // Format for Discord embed
-        const formattedDashboard = this.formatDashboardForDiscord(dashboard, session, homeworkSessionId);
-        
-        // Cache the result
-        this.homeworkCache.set(cacheKey, {
-            data: formattedDashboard,
-            timestamp: Date.now()
-        });
-        
-        return formattedDashboard;
-    }
+            UserSession.selectRow =
+                select;
 
-    formatDashboardForDiscord(dashboard, session, homeworkSessionId) {
-        const progressBar = this.createProgressBar(dashboard.progress, 15);
-        const dueDateStr = dashboard.dueDate ? 
-            new Date(dashboard.dueDate).toLocaleDateString('en-GB', {
-                weekday: 'short',
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-            }) : 
-            'No due date';
-        
-        const timeSpentMinutes = Math.floor(dashboard.timeSpent / 60);
-        const timeSpentSeconds = dashboard.timeSpent % 60;
-        
-        // Get current task details
-        const currentTask = session.getCurrentTask(homeworkSessionId);
-        const questionText = currentTask ? 
-            (currentTask.question.length > 150 ? 
-                currentTask.question.substring(0, 150) + '...' : 
-                currentTask.question) : 
-            'No current task';
-        
-        return {
-            title: `📚 ${dashboard.title || 'Sparx Homework'}`,
-            description: `**Homework Progress** • Session: \`${dashboard.sessionId.substring(0, 12)}\``,
-            color: this.getProgressColor(dashboard.progress),
-            fields: [
-                {
-                    name: '📅 Due Date',
-                    value: `\`${dueDateStr}\``,
-                    inline: true
-                },
-                {
-                    name: '⏱️ Time Spent',
-                    value: `\`${timeSpentMinutes}m ${timeSpentSeconds}s\``,
-                    inline: true
-                },
-                {
-                    name: '🎯 Current Task',
-                    value: `\`${dashboard.currentQuestion}\``,
-                    inline: true
-                },
-                {
-                    name: '📊 Progress',
-                    value: `\`${progressBar}\` ${dashboard.progress}%`,
-                    inline: false
-                },
-                {
-                    name: '✅ Completed',
-                    value: `\`${dashboard.completedTasks}/${dashboard.totalTasks}\` tasks`,
-                    inline: true
-                },
-                {
-                    name: '📝 Question',
-                    value: `\`\`\`${questionText}\`\`\``,
-                    inline: false
-                },
-                {
-                    name: '🔖 Bookwork Code',
-                    value: `\`${dashboard.currentTask?.bookworkCode || 'None'}\``,
-                    inline: true
-                },
-                {
-                    name: '🎯 Type',
-                    value: `\`${dashboard.currentTask?.type || 'Unknown'}\``,
-                    inline: true
-                }
-            ],
-            footer: {
-                text: `Vobo Ai • Homework Autocompleter • ${new Date().toLocaleTimeString()}`
-            },
-            timestamp: new Date().toISOString()
-        };
-    }
-
-    createProgressBar(percentage, length) {
-        const filledLength = Math.round((percentage / 100) * length);
-        const emptyLength = length - filledLength;
-        
-        const filledBar = '█'.repeat(filledLength);
-        const emptyBar = '░'.repeat(emptyLength);
-        
-        return `${filledBar}${emptyBar}`;
-    }
-
-    getProgressColor(percentage) {
-        if (percentage >= 80) return 0x00FF00; // Green
-        if (percentage >= 50) return 0xFFA500; // Orange
-        if (percentage >= 25) return 0xFFFF00; // Yellow
-        return 0xFF0000; // Red
-    }
-
-    async refreshSession(sessionId) {
-        const session = this.sessions.get(sessionId);
-        if (!session) return false;
-        
-        try {
-            // Try to validate the current session
-            const isValid = await session.validateSession();
-            if (isValid) return true;
-            
-            // If invalid, try to refresh
-            const refreshed = await session.refreshSession();
-            return refreshed;
-        } catch (error) {
-            console.error('Session refresh error:', error);
-            return false;
+            await UserSession.updateEmbed(
+                true
+            );
         }
-    }
-
-    async cancelHomework(homeworkSessionId) {
-        const homeworkData = this.activeHomeworkSessions.get(homeworkSessionId);
-        if (!homeworkData) {
-            throw new Error('Homework session not found');
-        }
-        
-        const session = this.sessions.get(homeworkData.sparxSessionId);
-        if (!session) {
-            throw new Error('Sparx session not found');
-        }
-        
-        const cancelled = session.cancelHomeworkSession(homeworkSessionId);
-        
-        if (cancelled) {
-            this.activeHomeworkSessions.delete(homeworkSessionId);
-            this.homeworkCache.delete(`dashboard_${homeworkSessionId}`);
-            this.homeworkCache.delete(`progress_${homeworkSessionId}`);
-        }
-        
-        return cancelled;
-    }
-
-    async listActiveHomeworkSessions(sparxSessionId = null) {
-        const activeSessions = [];
-        
-        for (const [homeworkSessionId, homeworkData] of this.activeHomeworkSessions) {
-            if (sparxSessionId && homeworkData.sparxSessionId !== sparxSessionId) {
-                continue;
-            }
-            
-            const session = this.sessions.get(homeworkData.sparxSessionId);
-            if (session) {
-                const progress = session.getHomeworkProgress(homeworkSessionId);
-                const currentTask = session.getCurrentTask(homeworkSessionId);
-                
-                activeSessions.push({
-                    homeworkSessionId,
-                    sparxSessionId: homeworkData.sparxSessionId,
-                    packageId: homeworkData.packageId,
-                    progress,
-                    currentTask: currentTask ? {
-                        assignmentTitle: currentTask.assignmentTitle,
-                        question: currentTask.question.substring(0, 50) + '...'
-                    } : null,
-                    startTime: homeworkData.session.startTime
-                });
-            }
-        }
-        
-        return activeSessions;
-    }
-
-    async getHomeworkStatistics(sessionId) {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            throw new Error('Session not found');
-        }
-        
-        const homeworkList = await this.getHomeworkList(sessionId, true);
-        
-        let totalAssignments = 0;
-        let totalTasks = 0;
-        let completedTasks = 0;
-        let overdueCount = 0;
-        
-        const now = new Date();
-        
-        for (const homework of homeworkList) {
-            totalAssignments++;
-            totalTasks += homework.totalTasks || 0;
-            completedTasks += homework.completedTasks || 0;
-            
-            if (homework.dueDate && new Date(homework.dueDate) < now && homework.progress < 100) {
-                overdueCount++;
-            }
-        }
-        
-        const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-        
-        return {
-            totalAssignments,
-            totalTasks,
-            completedTasks,
-            remainingTasks: totalTasks - completedTasks,
-            completionRate: Math.round(completionRate),
-            overdueAssignments: overdueCount,
-            activeSessions: this.listActiveHomeworkSessions(sessionId).length
-        };
-    }
-
-    async cleanupExpiredSessions() {
-        const now = Date.now();
-        const expiredTime = 30 * 60 * 1000; // 30 minutes
-        
-        // Clean up Sparx sessions
-        for (const [sessionId, session] of this.sessions) {
-            if (session.sessionExpiry && now > session.sessionExpiry) {
-                this.sessions.delete(sessionId);
-                console.log(`Cleaned up expired Sparx session: ${sessionId}`);
-            }
-        }
-        
-        // Clean up homework sessions
-        for (const [homeworkSessionId, homeworkData] of this.activeHomeworkSessions) {
-            const session = this.sessions.get(homeworkData.sparxSessionId);
-            if (!session || !session.homeworkSessions.has(homeworkSessionId)) {
-                this.activeHomeworkSessions.delete(homeworkSessionId);
-                console.log(`Cleaned up orphaned homework session: ${homeworkSessionId}`);
-            }
-        }
-        
-        // Clean up cache
-        for (const [cacheKey, cacheData] of this.homeworkCache) {
-            if (now - cacheData.timestamp > 3600000) { // 1 hour
-                this.homeworkCache.delete(cacheKey);
-            }
-        }
-    }
+    );
 }
 
-module.exports = new MathsExecutor();
+
+module.exports =
+    mathsExecuter;
