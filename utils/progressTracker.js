@@ -18,11 +18,14 @@ class progressTracker {
         this.embed = null;
         this.row = null;
 
-        this.sectionsProgress = [];
+        this.homeworksProgress = [];
+
         this.currentPage = 1;
 
         this.currentProgress = 0;
         this.progressMax = 1;
+
+        this.currentHomeworkIndex = -1;
 
         this.getTimeField =
             getTimeField.bind(this);
@@ -30,7 +33,7 @@ class progressTracker {
 
     getTimeEmbed() {
         return {
-            name: '\u200B',
+            name: '⏱️ Session',
             value: this.getTimeField(),
             inline: false
         };
@@ -40,49 +43,66 @@ class progressTracker {
         return Math.max(
             1,
             Math.ceil(
-                this.sectionsProgress.length / 5
+                this.homeworksProgress.length / 5
             )
         );
     }
 
-    getSectionText() {
-        const totalPages =
-            this.getTotalPages();
-
+    getHomeworkText() {
         const start =
             (this.currentPage - 1) * 5;
 
-        const pageSections =
-            this.sectionsProgress.slice(
+        const pageHomeworks =
+            this.homeworksProgress.slice(
                 start,
                 start + 5
             );
 
-        if (!pageSections.length) {
-            return 'No sections available.';
+        if (!pageHomeworks.length) {
+            return 'No homeworks available.';
         }
 
-        return pageSections
-            .map((section, index) => {
+        return pageHomeworks
+            .map((homework, index) => {
                 const current =
-                    Number(section.current) || 0;
+                    Number(homework.current) || 0;
 
                 const total =
-                    Number(section.total) || 1;
+                    Number(homework.total) || 0;
 
                 const percentage =
-                    Math.round(
-                        Math.max(
-                            0,
-                            Math.min(
-                                1,
-                                current / total
-                            )
-                        ) * 100
-                    );
+                    total > 0
+                        ? Math.round(
+                              Math.max(
+                                  0,
+                                  Math.min(
+                                      1,
+                                      current / total
+                                  )
+                              ) * 100
+                          )
+                        : 0;
+
+                const name =
+                    homework.name ||
+                    `Homework ${start + index + 1}`;
+
+                const isCurrent =
+                    start + index ===
+                    this.currentHomeworkIndex;
+
+                const icon =
+                    isCurrent
+                        ? '🟢'
+                        : current >= total &&
+                          total > 0
+                        ? '✅'
+                        : '⚪';
 
                 return (
-                    `**${start + index + 1}. ${section.name}** — ${percentage}%`
+                    `${icon} **${name}** — ` +
+                    `**${current}/${total || '?'}** ` +
+                    `(${percentage}%)`
                 );
             })
             .join('\n');
@@ -103,15 +123,22 @@ class progressTracker {
             const customId =
                 component.data?.custom_id;
 
-            if (customId === 'sparx_progress_prev') {
+            if (
+                customId ===
+                'sparx_progress_prev'
+            ) {
                 component.setDisabled(
                     this.currentPage <= 1
                 );
             }
 
-            if (customId === 'sparx_progress_next') {
+            if (
+                customId ===
+                'sparx_progress_next'
+            ) {
                 component.setDisabled(
-                    this.currentPage >= totalPages
+                    this.currentPage >=
+                    totalPages
                 );
             }
         }
@@ -126,7 +153,8 @@ class progressTracker {
                 1,
                 Math.min(
                     totalPages,
-                    this.currentPage + direction
+                    this.currentPage +
+                        direction
                 )
             );
 
@@ -159,9 +187,15 @@ class progressTracker {
         );
 
         await this.targetMessage.edit({
-            embeds: [this.embed],
-            components: [this.row],
-            files: [attachment]
+            embeds: [
+                this.embed
+            ],
+            components: [
+                this.row
+            ],
+            files: [
+                attachment
+            ]
         });
     }
 
@@ -178,8 +212,12 @@ class progressTracker {
         }
 
         await this.targetMessage.edit({
-            embeds: [this.embed],
-            components: [this.row]
+            embeds: [
+                this.embed
+            ],
+            components: [
+                this.row
+            ]
         });
     }
 
@@ -188,11 +226,14 @@ class progressTracker {
             this.getTotalPages();
 
         this.embed.setDescription(
-`**${description}**
+`### 📚 Educake Progress
 
-### 📚 Sections — Page ${this.currentPage}/${totalPages}
+${description}
 
-${this.getSectionText()}`
+### 📖 Homeworks
+Page **${this.currentPage}/${totalPages}**
+
+${this.getHomeworkText()}`
         );
 
         this.embed.setFields(
@@ -210,22 +251,61 @@ ${this.getSectionText()}`
         progMax = 1
     ) {
         this.currentProgress =
-            newProg;
+            Number(newProg) || 0;
 
         this.progressMax =
-            progMax;
+            Number(progMax) || 1;
 
-        const quizNumber =
-            index + 1;
+        this.currentHomeworkIndex =
+            index;
+
+        /*
+         * Keep the homework progress
+         * synced with the real question
+         * currently being processed.
+         */
+        if (
+            this.homeworksProgress[index]
+        ) {
+            this.homeworksProgress[index]
+                .current =
+                this.currentProgress;
+
+            this.homeworksProgress[index]
+                .total =
+                this.progressMax;
+        }
+
+        const homework =
+            this.homeworksProgress[index];
+
+        const homeworkName =
+            homework?.name ||
+            `Homework ${index + 1}`;
+
+        const percentage =
+            this.progressMax > 0
+                ? Math.round(
+                      (
+                          this.currentProgress /
+                          this.progressMax
+                      ) * 100
+                  )
+                : 0;
 
         this.embed.setFields(
             {
                 name:
-                    `📝 Section ${quizNumber}`,
+                    '📝 Current Homework',
+
                 value:
-                    `Question **${newProg} / ${progMax}**`,
+                    `**${homeworkName}**\n` +
+                    `Question **${this.currentProgress} / ${this.progressMax}** ` +
+                    `• **${percentage}%**`,
+
                 inline: false
             },
+
             this.getTimeEmbed()
         );
 
@@ -258,6 +338,7 @@ ${this.getSectionText()}`
         }
 
         const interval = 3000;
+
         let elapsed = 0;
 
         await this.updateEmbed(
@@ -293,7 +374,7 @@ ${this.getSectionText()}`
     async start(
         initialEmbed,
         row,
-        sectionsProgress
+        homeworksProgress
     ) {
         this.embed =
             initialEmbed;
@@ -301,28 +382,46 @@ ${this.getSectionText()}`
         this.row =
             row;
 
-        this.sectionsProgress =
-            sectionsProgress;
+        this.homeworksProgress =
+            Array.isArray(
+                homeworksProgress
+            )
+                ? homeworksProgress
+                : [];
 
         this.currentPage = 1;
+
         this.currentProgress = 0;
         this.progressMax = 1;
 
+        this.currentHomeworkIndex = -1;
+
+        this.embed.setTitle(
+            '📚 Educake Autocompleter'
+        );
+
         this.embed.setDescription(
-`🪄 **Preparing your Sparx Maths session...**
+`### 🟢 Starting
 
-### 📚 Sections — Page 1/${this.getTotalPages()}
+Preparing your Educake session...
 
-${this.getSectionText()}`
+### 📖 Homeworks
+Page **1/${this.getTotalPages()}**
+
+${this.getHomeworkText()}`
         );
 
         this.embed.setFields(
             {
-                name: '📊 Progress',
+                name:
+                    '📊 Progress',
+
                 value:
-                    'Starting autocompleter...',
+                    'Waiting to begin...',
+
                 inline: false
             },
+
             this.getTimeEmbed()
         );
 
@@ -341,9 +440,11 @@ ${this.getSectionText()}`
                     embeds: [
                         this.embed
                     ],
+
                     components: [
                         row
                     ],
+
                     files: [
                         attachment
                     ]
@@ -361,7 +462,7 @@ ${this.getSectionText()}`
                         'Cannot Direct Message'
                     )
                     .setDescription(
-                        'The autocompleter could not send you the progress tracker because your Discord DMs are disabled.'
+                        'The progress tracker could not send you a DM because your Discord DMs are disabled.'
                     )
                     .setColor(
                         0xFF474D
@@ -371,6 +472,7 @@ ${this.getSectionText()}`
                 embeds: [
                     noDMenabled
                 ],
+
                 ephemeral: true
             });
 
