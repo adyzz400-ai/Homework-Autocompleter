@@ -2263,7 +2263,7 @@ async function educake_collector(
                         )
                         .setLabel('Login')
                         .setEmoji({
-                        id: '1558201194340421692>',
+                        id: '1558201194340421692',
                         name: 'login'
                         })
                         .setStyle(
@@ -2276,7 +2276,7 @@ async function educake_collector(
                                 )
                                 .setLabel('Queue')
                                 .setEmoji({
-                                    id: '1558201249042796634>',
+                                    id: '1558201249042796634',
                                     name: 'queue'
                                 })
                                 .setStyle(
