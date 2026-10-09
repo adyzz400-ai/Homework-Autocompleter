@@ -2262,9 +2262,10 @@ async function educake_collector(
                             'educake_login'
                         )
                         .setLabel('Login')
-                        .setEmoji(
-                            emojis.login
-                        )
+                        .setEmoji({
+                        id: '1558161449271033888',
+                        name: 'login'
+                        })
                         .setStyle(
                             ButtonStyle.Success
                         );
@@ -2274,7 +2275,10 @@ async function educake_collector(
                                     'educake_queue_status'
                                 )
                                 .setLabel('Queue')
-                                .setEmoji('👥')
+                                .setEmoji({
+                                    id: '1558161597095092324',
+                                    name: 'queue'
+                                })
                                 .setStyle(
                                     ButtonStyle.Secondary
                                 );
