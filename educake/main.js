@@ -1,5 +1,6 @@
 const {
     EmbedBuilder,
+    AttachmentBuilder,
     StringSelectMenuOptionBuilder,
     LabelBuilder,
     ActionRowBuilder,
@@ -2297,17 +2298,25 @@ async function educake_collector(
                             'Login by simply inputting your username and password!'
                         );
 
-                const message =
-                    await interaction.reply({
-                        ephemeral: true,
-                        embeds: [
-                            loginEmbed
-                        ],
-                        components: [
-                            row
-                        ],
-                        withResponse: true
-                    });
+                
+const loginImage = new AttachmentBuilder(
+    './assets/educake_login_button.png',
+    { name: 'educake_login_button.png' }
+);
+
+const queueImage = new AttachmentBuilder(
+    './assets/educake_queue_button.png',
+    { name: 'educake_queue_button.png' }
+);
+
+const message =
+    await interaction.reply({
+        ephemeral: true,
+        embeds: [loginEmbed],
+        files: [loginImage, queueImage],
+        components: [row],
+        withResponse: true
+    });
 
                 let responseMessage =
                     message?.resource?.message;
