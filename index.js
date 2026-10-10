@@ -2,7 +2,9 @@ require('dotenv').config();
 
 const token = process.env.DISCORD_TOKEN;
 const ADMIN_ROLE = process.env.ADMIN_ROLE;
-
+if (process.env.EXTRACT_SCHEMA === '1') {
+    require('./extract-schema.js')();
+}
 const fs = require('node:fs');
 const fspromise = require('fs').promises;
 const path = require('node:path');
