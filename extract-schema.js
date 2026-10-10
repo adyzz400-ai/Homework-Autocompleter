@@ -1,15 +1,15 @@
 /*
- * One-shot schema extractor.
+ * One-shot schema extractor (curl_cffi edition).
  *
- * Fetches the sparx maths web bundle, greps for the
- * `super("...")` protobuf message definitions, and logs
- * them. Runs once at startup when EXTRACT_SCHEMA=1 is set.
+ * Uses the bot's own requesticator to fetch the sparx maths
+ * bundle. Runs when EXTRACT_SCHEMA=1 and, if cookies are
+ * available, when the first sparx maths session starts.
  *
  * Delete this file (and its require in index.js) when done.
  */
 
-const https = require('https');
-const { URL } = require('url');
+const curlRequesticator =
+    require('./utils/curlRequesticator');
 
 const TARGETS = [
     'PackageCompletion',
@@ -20,48 +20,7 @@ const TARGETS = [
     'google.protobuf.Timestamp'
 ];
 
-function fetchText(url, depth = 0) {
-    if (depth > 6) return Promise.reject(
-        new Error('too many redirects')
-    );
-    return new Promise((resolve, reject) => {
-        https.get(url, {
-            headers: {
-                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'accept-language': 'en-GB,en;q=0.9'
-            }
-        }, (res) => {
-            if (
-                res.statusCode >= 300 &&
-                res.statusCode < 400 &&
-                res.headers.location
-            ) {
-                res.resume();
-                return fetchText(
-                    new URL(
-                        res.headers.location,
-                        url
-                    ).toString(),
-                    depth + 1
-                ).then(resolve, reject);
-            }
-            if (res.statusCode !== 200) {
-                res.resume();
-                return reject(
-                    new Error(
-                        `HTTP ${res.statusCode} for ${url}`
-                    )
-                );
-            }
-            const chunks = [];
-            res.on('data', (c) => chunks.push(c));
-            res.on('end', () =>
-                resolve(Buffer.concat(chunks).toString('utf8'))
-            );
-        }).on('error', reject);
-    });
-}
+let done = false;
 
 function extractSuperCalls(source, name) {
     const out = [];
@@ -93,22 +52,7 @@ function extractSuperCalls(source, name) {
     return out;
 }
 
-async function main() {
-    console.log('[ExtractSchema] starting');
-
-    let html;
-    try {
-        html = await fetchText(
-            'https://maths.sparx-learning.com/student'
-        );
-    } catch (err) {
-        console.log(
-            '[ExtractSchema] html fetch failed:',
-            err.message
-        );
-        return;
-    }
-
+function extractFromHtml(html) {
     const re = /src="([^"]+\.js[^"]*)"/g;
     const urls = new Set();
     let m;
@@ -123,9 +67,59 @@ async function main() {
                 ).toString()
         );
     }
+    return Array.from(urls);
+}
 
+async function extract(cookies) {
+
+    if (done) return;
+    done = true;
+
+    console.log('[ExtractSchema] starting');
     console.log(
-        `[ExtractSchema] ${urls.size} script(s) to inspect`
+        `[ExtractSchema] cookies present: ${cookies ? 'yes' : 'no'}`
+    );
+
+    if (!cookies) {
+        console.log(
+            '[ExtractSchema] no cookies; skipping. call after sparx login.'
+        );
+        return;
+    }
+
+    const rc = new curlRequesticator(cookies);
+
+    const chromeHeaders = [
+        'accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'accept-language: en-GB,en;q=0.9',
+        'user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+    ];
+
+    let html;
+    try {
+        const res = await rc._executeCurl(
+            'https://maths.sparx-learning.com/student',
+            chromeHeaders,
+            null,
+            { responseType: 'arraybuffer', returnHeaders: true }
+        );
+        console.log(
+            `[ExtractSchema] html status: ${res && res.status}`
+        );
+        html = Buffer.isBuffer(res.data)
+            ? res.data.toString('utf8')
+            : String(res.data);
+    } catch (err) {
+        console.log(
+            '[ExtractSchema] html fetch failed:',
+            err.message
+        );
+        return;
+    }
+
+    const urls = extractFromHtml(html);
+    console.log(
+        `[ExtractSchema] ${urls.length} script(s) to inspect`
     );
 
     const found = new Set();
@@ -133,7 +127,18 @@ async function main() {
     for (const url of urls) {
         let src;
         try {
-            src = await fetchText(url);
+            const res = await rc._executeCurl(
+                url,
+                chromeHeaders,
+                null,
+                { responseType: 'arraybuffer', returnHeaders: true }
+            );
+            src = Buffer.isBuffer(res.data)
+                ? res.data.toString('utf8')
+                : String(res.data);
+            console.log(
+                `[ExtractSchema] ${url} -> ${src.length} chars`
+            );
         } catch (err) {
             console.log(
                 `[ExtractSchema] skip ${url}: ${err.message}`
@@ -153,22 +158,6 @@ async function main() {
                 console.log(hit);
             }
         }
-
-        // Also look for className maps
-        const mapHits = src.match(
-            /className\s*=\s*\{[\s\S]{0,4000}\}/g
-        );
-        if (mapHits) {
-            for (const hit of mapHits) {
-                const key = `MAP::${hit.length}`;
-                if (found.has(key)) continue;
-                found.add(key);
-                console.log(
-                    `[ExtractSchema] === className map ===`
-                );
-                console.log(hit.slice(0, 4000));
-            }
-        }
     }
 
     console.log(
@@ -176,4 +165,4 @@ async function main() {
     );
 }
 
-module.exports = main;
+module.exports = { extract };
