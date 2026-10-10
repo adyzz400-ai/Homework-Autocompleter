@@ -511,16 +511,6 @@ class SparxMaths extends SparxBase {
             response?.data?.length || 0
         );
 
-        console.log(
-            '[Sparx] ListStudentPackages grpc-status:',
-            response?.headers?.['grpc-status'] || 'n/a'
-        );
-
-        console.log(
-            '[Sparx] ListStudentPackages grpc-message:',
-            response?.headers?.['grpc-message'] || 'n/a'
-        );
-
         if (
             !response?.data
         ) {
@@ -645,17 +635,40 @@ class SparxMaths extends SparxBase {
             uniquePackages.push(pkg);
         }
 
+        /*
+         * Sort so packages WITHOUT a parsed due date come first.
+         *
+         * The response contains ~58 packages but only a handful
+         * carry a rendered "#<Title> due <date>" string. The
+         * rest render as bare "Homework" with no due-date text —
+         * which is exactly what the app shows for the current
+         * and recent homeworks. Those go to the TOP of the list
+         * so the slice(0, 25) cap keeps them.
+         *
+         * Packages that do carry a parsed due date are sorted
+         * ascending after that (soonest-first, and because of the
+         * year-roll-forward in parseDueText, they are all future
+         * dated).
+         */
         const sortedPackages = uniquePackages.sort(
             (a, b) => {
-                const aT = a.dueDate
-                    ? a.dueDate.getTime()
-                    : Number.POSITIVE_INFINITY;
-                const bT = b.dueDate
-                    ? b.dueDate.getTime()
-                    : Number.POSITIVE_INFINITY;
-                if (aT !== bT) return aT - bT;
-                return String(a.packageID).localeCompare(
-                    String(b.packageID)
+
+                const aHas = Boolean(a.dueDate);
+                const bHas = Boolean(b.dueDate);
+
+                if (aHas !== bHas) {
+                    return aHas ? 1 : -1;
+                }
+
+                if (!aHas && !bHas) {
+                    return String(a.packageID).localeCompare(
+                        String(b.packageID)
+                    );
+                }
+
+                return (
+                    a.dueDate.getTime() -
+                    b.dueDate.getTime()
                 );
             }
         );
@@ -672,7 +685,7 @@ class SparxMaths extends SparxBase {
         console.log(
             '[Sparx] Modern packages sample:',
             JSON.stringify(
-                trimmed.slice(0, 10),
+                trimmed.slice(0, 25),
                 null,
                 2
             )
@@ -742,14 +755,6 @@ class SparxMaths extends SparxBase {
             if (ampm === 'am' && hour === 12) hour = 0;
         }
 
-        /*
-         * The display string ("Thursday 16th April 3pm") carries
-         * no year. Pick whichever of {this year, next year} puts
-         * the date in the future. Rolling forward a whole year
-         * is the correct behaviour — if April has already passed
-         * in the current calendar year, the display string is
-         * referring to next April.
-         */
         const now = new Date();
         const currentYear = now.getFullYear();
 
