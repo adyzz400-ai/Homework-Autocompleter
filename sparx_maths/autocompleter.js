@@ -82,7 +82,6 @@ const {
     checkAccount
 } = require('../database/accounts.js');
 
-
 function stripWorkingOut(obj) {
     const result = {};
 
@@ -102,7 +101,6 @@ function stripWorkingOut(obj) {
     return result;
 }
 
-
 function getWorkingOutData(arr) {
     const index =
         arr.findIndex(
@@ -119,6 +117,40 @@ function getWorkingOutData(arr) {
     return workingOut;
 }
 
+function parseBookworksColumn(raw) {
+    if (raw === null || raw === undefined) {
+        return {};
+    }
+
+    if (typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw;
+    }
+
+    if (Array.isArray(raw)) {
+        console.warn(
+            '[Sparx Maths] bookworks column is an array; falling back to {}'
+        );
+        return {};
+    }
+
+    try {
+        const parsed = JSON.parse(String(raw));
+        if (
+            parsed &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed)
+        ) {
+            return parsed;
+        }
+        return {};
+    } catch (err) {
+        console.error(
+            '[Sparx Maths] Failed to parse bookworks JSON:',
+            err
+        );
+        return {};
+    }
+}
 
 class sparxMathsAutocompleter {
 
@@ -126,43 +158,21 @@ class sparxMathsAutocompleter {
         sparxMaths,
         interaction,
         packageID,
-        fakeTimeSettings,
+        timeSettings,
         log,
         pdfSettings
     ) {
-        this.sparxMaths =
-            sparxMaths;
-
-        this.interaction =
-            interaction;
-
-        this.packageID =
-            packageID;
-
-        this.log =
-            log;
-
-        this.currentBookmark =
-            null;
-
-        this.bookmarks =
-            {};
-
-        this.pdfSettings =
-            pdfSettings;
-
-        this.startTimestamp =
-            Math.floor(
-                Date.now() / 1000
-            );
-
-        this.totalFakeTime =
-            0;
-
-        this.fakeTimeSettings =
-            fakeTimeSettings;
+        this.sparxMaths = sparxMaths;
+        this.interaction = interaction;
+        this.packageID = packageID;
+        this.log = log;
+        this.currentBookmark = null;
+        this.bookmarks = {};
+        this.pdfSettings = pdfSettings;
+        this.timeSettings = timeSettings;
+        this.lastSubmitAt = null;
+        this.totalFakeTime = 0;
     }
-
 
     async sendBookWork() {
 
@@ -171,28 +181,10 @@ class sparxMathsAutocompleter {
                 this.packageID
             );
 
-        let bookworksObj = {};
-
-        if (
-            Array.isArray(
-                bookworkRow.bookworks
-            )
-        ) {
-            bookworkRow.bookworks =
-                '{}';
-        }
-
-        try {
-            bookworksObj =
-                JSON.parse(
-                    bookworkRow.bookworks || '{}'
-                );
-        } catch (err) {
-            console.error(
-                "Failed to parse bookworks:",
-                err
+        const bookworksObj =
+            parseBookworksColumn(
+                bookworkRow && bookworkRow.bookworks
             );
-        }
 
         const pdfAttachment =
             await convertToPDF(
@@ -265,7 +257,6 @@ class sparxMathsAutocompleter {
         }
     }
 
-
     async addAnswer(answer) {
 
         this.bookmarks[
@@ -283,28 +274,18 @@ class sparxMathsAutocompleter {
         );
     }
 
-
     async readyBookwork(activityIndex) {
 
         const readyObj = {
-            "activityIndex":
-                activityIndex,
-
+            "activityIndex": activityIndex,
             "action": {
-                "oneofKind":
-                    "wac",
-
+                "oneofKind": "wac",
                 "wac": {
-                    "actionType":
-                        0,
-
-                    "extraData":
-                        {}
+                    "actionType": 0,
+                    "extraData": {}
                 }
             },
-
-            "timestamp":
-                this.getTimestamp()
+            "timestamp": this.getTimestamp()
         };
 
         await this.sparxMaths.readyQuestion(
@@ -312,31 +293,21 @@ class sparxMathsAutocompleter {
         );
     }
 
-
     async readyQuestion(
         questionIndex,
         activityIndex
     ) {
 
         const readyObj = {
-            "activityIndex":
-                activityIndex,
-
+            "activityIndex": activityIndex,
             "action": {
-                "oneofKind":
-                    "question",
-
+                "oneofKind": "question",
                 "question": {
-                    "questionIndex":
-                        questionIndex,
-
-                    "actionType":
-                        0
+                    "questionIndex": questionIndex,
+                    "actionType": 0
                 }
             },
-
-            "timestamp":
-                this.getTimestamp()
+            "timestamp": this.getTimestamp()
         };
 
         return await this.sparxMaths.readyQuestion(
@@ -344,6 +315,83 @@ class sparxMathsAutocompleter {
         );
     }
 
+    async waitBetweenQuestions(
+        index,
+        taskTitle,
+        progressUpdater,
+        cancelledFlag
+    ) {
+
+        const min = Number(this.timeSettings?.min);
+        const max = Number(this.timeSettings?.max);
+
+        const minOk =
+            Number.isInteger(min) && min >= 0;
+        const maxOk =
+            Number.isInteger(max) && max >= 0;
+
+        if (!minOk || !maxOk || max <= 0) {
+            return;
+        }
+
+        if (min > max) {
+            console.error(
+                `[Sparx Maths] invalid time settings: min=${min} > max=${max}; no wait applied`
+            );
+            return;
+        }
+
+        const targetGapSec =
+            Math.floor(
+                Math.random() * (max - min + 1)
+            ) + min;
+
+        if (targetGapSec <= 0) {
+            return;
+        }
+
+        const now = Date.now();
+        let waitMs;
+
+        if (
+            this.lastSubmitAt === null ||
+            this.lastSubmitAt === undefined
+        ) {
+            waitMs = targetGapSec * 1000;
+        } else {
+            const elapsed = now - this.lastSubmitAt;
+            waitMs = Math.max(
+                0,
+                (targetGapSec * 1000) - elapsed
+            );
+        }
+
+        if (waitMs <= 0) {
+            return;
+        }
+
+        const waitSec = Math.ceil(waitMs / 1000);
+        const interval = 3000;
+        let elapsedLoop = 0;
+
+        await progressUpdater.updateEmbed(
+            `⏳ Waiting to submit Question ${index} at ${taskTitle} \`<t:${Math.floor(Date.now() / 1000) + waitSec}:R>\`...`
+        );
+
+        while (
+            elapsedLoop < waitMs &&
+            !cancelledFlag()
+        ) {
+            const timeLeft = waitMs - elapsedLoop;
+            const sleep = Math.min(interval, timeLeft);
+
+            await new Promise(
+                resolve => setTimeout(resolve, sleep)
+            );
+
+            elapsedLoop += sleep;
+        }
+    }
 
     async answerQuestion(
         answerObject,
@@ -358,149 +406,101 @@ class sparxMathsAutocompleter {
             );
 
         this.log.logToFile('---');
-
-        this.log.logToFile(
-            answerResponse
-        );
+        this.log.logToFile(answerResponse);
 
         if (
-            answerResponse.response.status ===
-            'SUCCESS'
+            !answerResponse ||
+            !answerResponse.response ||
+            typeof answerResponse.response !== 'object'
         ) {
+            this.log.logToFile(
+                '[Sparx Maths] answerQuestion: malformed response (no .response)'
+            );
+            return false;
+        }
 
-            if (
-                answerObject.action.oneofKind ===
-                'wac'
-            ) {
-                return true;
-            }
+        if (
+            answerResponse.response.status !== 'SUCCESS'
+        ) {
+            return false;
+        }
 
-            const result =
-                answerResponse.response
-                    .givenAnswerXML
-                    .replace(
-                        /<[^>]*>/g,
-                        ' '
-                    )
-                    .replace(
-                        /\s+/g,
-                        ' '
-                    )
-                    .trim();
+        this.lastSubmitAt = Date.now();
 
-            await sparxMathsExecuter.addAnswer({
-                answer:
-                    result,
-
-                working_out,
-                question
-            });
-
+        if (
+            answerObject.action.oneofKind === 'wac'
+        ) {
             return true;
         }
 
-        return false;
-    }
+        const given =
+            answerResponse.response.givenAnswerXML;
 
+        if (typeof given !== 'string') {
+            this.log.logToFile(
+                '[Sparx Maths] answerQuestion: SUCCESS with no givenAnswerXML -> partial'
+            );
+            return 'partial';
+        }
+
+        const result =
+            given
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+        await sparxMathsExecuter.addAnswer({
+            answer: result,
+            working_out,
+            question
+        });
+
+        return true;
+    }
 
     async answerTimesTable(activityIndex) {
 
         const timesTableInput = {
-            "activityIndex":
-                activityIndex,
-
+            "activityIndex": activityIndex,
             "action": {
-                "oneofKind":
-                    "game",
-
+                "oneofKind": "game",
                 "game": {
                     "action": {
-                        "oneofKind":
-                            "tablesAnswer",
-
+                        "oneofKind": "tablesAnswer",
                         "tablesAnswer": {
                             "answers": [
                                 {
-                                    "questionText":
-                                        "6x5=?,30",
-
-                                    "answerText":
-                                        "30",
-
-                                    "correct":
-                                        true,
-
-                                    "timedOut":
-                                        false,
-
-                                    "timeTaken":
-                                        2.959,
-
-                                    "game":
-                                        "100club",
-
-                                    "enterCorrectionPhase":
-                                        false,
-
-                                    "leaveCorrectionPhase":
-                                        false,
-
-                                    "inputString":
-                                        "0",
-
-                                    "questionGap":
-                                        1000,
-
-                                    "badData":
-                                        false,
-
-                                    "questionSetID":
-                                        "tables",
-
-                                    "deliveryMechanism":
-                                        "basicKeypad",
-
-                                    "target":
-                                        false,
-
-                                    "numPendingTalkAndLearns":
-                                        0,
-
-                                    "context":
-                                        1,
-
-                                    "didNotKnow":
-                                        false,
-
-                                    "indexWithinQuiz":
-                                        0,
-
-                                    "talPromptType":
-                                        "",
-
-                                    "secondChance":
-                                        false,
-
-                                    "talCycleCount":
-                                        0,
-
-                                    "indexWithinGameSession":
-                                        0,
-
-                                    "isEndOfQuiz":
-                                        false,
-
-                                    "answerTime":
-                                        this.getTimestamp()
+                                    "questionText": "6x5=?,30",
+                                    "answerText": "30",
+                                    "correct": true,
+                                    "timedOut": false,
+                                    "timeTaken": 2.959,
+                                    "game": "100club",
+                                    "enterCorrectionPhase": false,
+                                    "leaveCorrectionPhase": false,
+                                    "inputString": "0",
+                                    "questionGap": 1000,
+                                    "badData": false,
+                                    "questionSetID": "tables",
+                                    "deliveryMechanism": "basicKeypad",
+                                    "target": false,
+                                    "numPendingTalkAndLearns": 0,
+                                    "context": 1,
+                                    "didNotKnow": false,
+                                    "indexWithinQuiz": 0,
+                                    "talPromptType": "",
+                                    "secondChance": false,
+                                    "talCycleCount": 0,
+                                    "indexWithinGameSession": 0,
+                                    "isEndOfQuiz": false,
+                                    "answerTime": this.getTimestamp()
                                 }
                             ]
                         }
                     }
                 }
             },
-
-            "timestamp":
-                this.getTimestamp()
+            "timestamp": this.getTimestamp()
         };
 
         await this.sparxMaths.answerTimesTable(
@@ -508,46 +508,26 @@ class sparxMathsAutocompleter {
         );
     }
 
-
     async startTimesTable(
         packageId,
         taskIndex
     ) {
 
         const timesTableInput = {
-            "activityType":
-                3,
-
+            "activityType": 3,
             "payload": {
-                "oneofKind":
-                    "gameID",
-
-                "gameID":
-                    "HundredClub"
+                "oneofKind": "gameID",
+                "gameID": "HundredClub"
             },
-
-            "method":
-                0,
-
-            "clientFeatureFlags":
-                {},
-
+            "method": 0,
+            "clientFeatureFlags": {},
             "taskItem": {
-                "packageID":
-                    packageId,
-
-                "taskIndex":
-                    taskIndex,
-
-                "taskItemIndex":
-                    0,
-
-                "taskState":
-                    0
+                "packageID": packageId,
+                "taskIndex": taskIndex,
+                "taskItemIndex": 0,
+                "taskState": 0
             },
-
-            "timestamp":
-                this.getTimestamp()
+            "timestamp": this.getTimestamp()
         };
 
         const timestableStarted =
@@ -558,51 +538,13 @@ class sparxMathsAutocompleter {
         return timestableStarted.activityIndex;
     }
 
-
     getTimestamp(addToUser) {
-
-        let offset =
-            Math.floor(
-                Math.random() *
-                (
-                    this.fakeTimeSettings.max -
-                    this.fakeTimeSettings.min +
-                    1
-                )
-            ) +
-            this.fakeTimeSettings.min;
-
-        this.startTimestamp +=
-            offset;
-
-        if (addToUser) {
-            this.totalFakeTime +=
-                offset;
-        }
-
-        const nanos =
-            (
-                Math.floor(
-                    Math.random() * 900
-                ) + 100
-            ) *
-            1_000_000;
-
-        this.log.logToFile(
-            `Time recorded is ${this.startTimestamp} and ${addToUser}`
-        );
-
         return {
-            "seconds":
-                this.startTimestamp,
-
-            "nanos":
-                nanos
+            "seconds": Math.floor(Date.now() / 1000),
+            "nanos": 0
         };
     }
-
 }
-
 
 async function checkDB(
     question,
@@ -611,40 +553,25 @@ async function checkDB(
     interaction
 ) {
 
-    const answer =
-        await checkAnswer(
-            question
-        );
+    const answer = await checkAnswer(question);
 
     if (!answer) {
         return answer;
     }
 
     const answerObject = {
-        "activityIndex":
-            activityIndex,
-
+        "activityIndex": activityIndex,
         "action": {
-            "oneofKind":
-                "question",
-
+            "oneofKind": "question",
             "question": {
-                "questionIndex":
-                    questionIndex,
-
-                "actionType":
-                    1,
-
+                "questionIndex": questionIndex,
+                "actionType": 1,
                 "answer": {
-                    "components":
-                        answer,
-
-                    "hash":
-                        ""
+                    "components": answer,
+                    "hash": ""
                 }
             }
         },
-
         "timestamp":
             userAutocompleters[
                 interaction.user.id
@@ -654,12 +581,11 @@ async function checkDB(
     return answerObject;
 }
 
-
 async function sparxMathsAutocomplete(
     interaction,
     packageID,
     sparxMaths,
-    fakeTime
+    timeSettings
 ) {
 
     const apikey =
@@ -671,103 +597,54 @@ async function sparxMathsAutocomplete(
 
     const ai =
         convertAItoObject(
-            fakeTime.model
+            timeSettings.model
         );
 
-    const log =
-        new logger(
-            `logs/sparx_maths/${interaction.user.id}.txt`
-        );
-
-    sparxMaths.log =
-        log;
-
-    log.logToFile(
-        'Logging Start'
+    const log = new logger(
+        `logs/sparx_maths/${interaction.user.id}.txt`
     );
 
+    sparxMaths.log = log;
+
+    log.logToFile('Logging Start');
     log.logToFile(
-        `**Settings**\nFaketime Min: ${fakeTime.min}\nFaktime Max: ${fakeTime.max}\nPDF Settings: ${JSON.stringify(fakeTime.pdfSettings, null, 2)}`
+        `**Settings**\nMin Time: ${timeSettings.min}\nMax Time: ${timeSettings.max}\nPDF Settings: ${JSON.stringify(timeSettings.pdfSettings, null, 2)}`
     );
 
     const {
         queueMaths
     } = require('../queues/queue');
 
-    const taskTimer =
-        process.hrtime();
+    const taskTimer = process.hrtime();
 
+    const previousPage = new ButtonBuilder()
+        .setCustomId('sparx_progress_prev')
+        .setLabel('Previous')
+        .setEmoji('◀️')
+        .setStyle(ButtonStyle.Secondary);
 
-    // Progress controls
-    const previousPage =
-        new ButtonBuilder()
-            .setCustomId(
-                'sparx_progress_prev'
-            )
-            .setLabel(
-                'Previous'
-            )
-            .setEmoji(
-                '◀️'
-            )
-            .setStyle(
-                ButtonStyle.Secondary
-            );
+    const nextPage = new ButtonBuilder()
+        .setCustomId('sparx_progress_next')
+        .setLabel('Next')
+        .setEmoji('▶️')
+        .setStyle(ButtonStyle.Secondary);
 
-    const nextPage =
-        new ButtonBuilder()
-            .setCustomId(
-                'sparx_progress_next'
-            )
-            .setLabel(
-                'Next'
-            )
-            .setEmoji(
-                '▶️'
-            )
-            .setStyle(
-                ButtonStyle.Secondary
-            );
+    const cancel = new ButtonBuilder()
+        .setCustomId('cancel')
+        .setLabel('Cancel')
+        .setEmoji(emojis.x)
+        .setStyle(ButtonStyle.Danger);
 
-    const cancel =
-        new ButtonBuilder()
-            .setCustomId(
-                'cancel'
-            )
-            .setLabel(
-                'Cancel'
-            )
-            .setEmoji(
-                emojis.x
-            )
-            .setStyle(
-                ButtonStyle.Danger
-            );
+    const row = new ActionRowBuilder()
+        .addComponents(previousPage, nextPage, cancel);
 
-    const row =
-        new ActionRowBuilder()
-            .addComponents(
-                previousPage,
-                nextPage,
-                cancel
-            );
-
-
-    const initialEmbed =
-        new EmbedBuilder()
-            .setColor(
-                0xE53935
-            )
-            .setTitle(
-                '✨ Sparx Maths — Progress'
-            )
-            .setDescription(
-                '🪄 Preparing your homework session...'
-            );
-
+    const initialEmbed = new EmbedBuilder()
+        .setColor(0xE53935)
+        .setTitle('✨ Sparx Maths — Progress')
+        .setDescription(' Preparing your homework session...');
 
     const wantWorkingOut =
-        fakeTime.pdfSettings.working_out;
+        timeSettings.pdfSettings.working_out;
 
     const sparxMathsExecuter =
         new sparxMathsAutocompleter(
@@ -775,68 +652,39 @@ async function sparxMathsAutocomplete(
             interaction,
             packageID,
             {
-                min:
-                    fakeTime.min,
-
-                max:
-                    fakeTime.max
+                min: timeSettings.min,
+                max: timeSettings.max
             },
             log,
-            fakeTime.pdfSettings
+            timeSettings.pdfSettings
         );
 
     userAutocompleters[
         interaction.user.id
     ] = sparxMathsExecuter;
 
-    let errorOccured =
-        false;
+    let errorOccured = false;
 
     const tasks =
-        await sparxMaths.getTasks(
-            packageID
-        );
+        await sparxMaths.getTasks(packageID);
 
-    const sectionsProgress =
-        [];
-
-    let currentGroup =
-        [];
+    const sectionsProgress = [];
+    let currentGroup = [];
 
     for (const task of tasks.tasks) {
 
-        let progressEntry = {
-            name:
-                task.title
-        };
+        let progressEntry = { name: task.title };
 
-        if (
-            task.title.endsWith(
-                'Times Tables'
-            )
-        ) {
-
+        if (task.title.endsWith('Times Tables')) {
             progressEntry.current =
-                Number(
-                    task.completion.progress.C
-                ) || 0;
-
+                Number(task.completion.progress.C) || 0;
             progressEntry.total =
-                Number(
-                    task.completion.size
-                ) || 1;
-
+                Number(task.completion.size) || 1;
         } else {
-
             progressEntry.current =
-                Number(
-                    task.numTaskItemsDone
-                ) || 0;
-
+                Number(task.numTaskItemsDone) || 0;
             progressEntry.total =
-                Number(
-                    task.numTaskItems
-                ) || 1;
+                Number(task.numTaskItems) || 1;
         }
 
         progressEntry.value =
@@ -845,52 +693,34 @@ async function sparxMathsAutocomplete(
                 progressEntry.total
             );
 
-        currentGroup.push(
-            progressEntry
-        );
+        currentGroup.push(progressEntry);
 
-        if (
-            currentGroup.length === 5
-        ) {
-
-            sectionsProgress.push(
-                currentGroup
-            );
-
+        if (currentGroup.length === 5) {
+            sectionsProgress.push(currentGroup);
             currentGroup = [];
         }
     }
 
-    if (
-        currentGroup.length > 0
-    ) {
-        sectionsProgress.push(
-            currentGroup
-        );
+    if (currentGroup.length > 0) {
+        sectionsProgress.push(currentGroup);
     }
 
+    const getTimeField = function () {
+        return `> **Time Spent**: ${formatTime(
+            (process.hrtime(taskTimer))[0]
+        )}`;
+    };
 
-    const getTimeField =
-        function () {
-            return `> **Time Spent**: ${formatTime(
-                (process.hrtime(taskTimer))[0]
-            )}\n> **Time Simulated**: ${formatTime(
-                sparxMathsExecuter.totalFakeTime
-            )}`;
-        };
+    const progressUpdater = new progressTracker(
+        interaction,
+        getTimeField
+    );
 
-
-    const progressUpdater =
-        new progressTracker(
-            interaction,
-            getTimeField
-        );
-
+    let collector = null;
 
     try {
 
-        let cancelled =
-            false;
+        let cancelled = false;
 
         if (
             await progressUpdater.start(
@@ -902,102 +732,63 @@ async function sparxMathsAutocomplete(
             return;
         }
 
+        collector = progressUpdater.targetMessage
+            .createMessageComponentCollector({
+                componentType: ComponentType.Button
+            });
 
-        const collector =
-            progressUpdater.targetMessage
-                .createMessageComponentCollector({
-                    componentType:
-                        ComponentType.Button
-                });
+        collector.on('collect', async (buttonInteraction) => {
 
+            await buttonInteraction.deferUpdate();
 
-        collector.on(
-            'collect',
-            async (buttonInteraction) => {
-
-                await buttonInteraction.deferUpdate();
-
-
-                if (
-                    buttonInteraction.customId ===
-                    'cancel'
-                ) {
-
-                    cancelled =
-                        true;
-
-                    await progressUpdater.updateEmbed(
-                        `🛑 Cancelling...`
-                    );
-
-                    return;
-                }
-
-
-                if (
-                    buttonInteraction.customId ===
-                    'sparx_progress_prev'
-                ) {
-
-                    await progressUpdater.changePage(
-                        -1
-                    );
-
-                    return;
-                }
-
-
-                if (
-                    buttonInteraction.customId ===
-                    'sparx_progress_next'
-                ) {
-
-                    await progressUpdater.changePage(
-                        1
-                    );
-
-                    return;
-                }
-
+            if (buttonInteraction.customId === 'cancel') {
+                cancelled = true;
+                await progressUpdater.updateEmbed(
+                    `🛑 Cancelling...`
+                );
+                return;
             }
-        );
 
+            if (buttonInteraction.customId === 'sparx_progress_prev') {
+                await progressUpdater.changePage(-1);
+                return;
+            }
+
+            if (buttonInteraction.customId === 'sparx_progress_next') {
+                await progressUpdater.changePage(1);
+                return;
+            }
+        });
 
         for (const task of tasks.tasks) {
 
-            if (cancelled) {
-                break;
-            }
+            if (cancelled) break;
 
             await progressUpdater.updateEmbed(
                 `📚 Moving on to ${task.title}...`
             );
 
+            if (cancelled) break;
+
             log.logToFile(
                 `📚 Moving on to ${task.title}...`
             );
 
-
             if (
-                task.title.endsWith(
-                    'Times Tables'
-                ) &&
+                task.title.endsWith('Times Tables') &&
                 (
                     task.completion.size >
-                    (
-                        task.completion?.progress?.C ??
-                        0
-                    )
+                    (task.completion?.progress?.C ?? 0)
                 )
             ) {
 
-                log.logToFile(
-                    'Timestable detected'
-                );
+                log.logToFile('Timestable detected');
 
                 await progressUpdater.updateEmbed(
                     `Completing Times Table...`
                 );
+
+                if (cancelled) break;
 
                 let activityIndex =
                     await sparxMathsExecuter.startTimesTable(
@@ -1005,12 +796,10 @@ async function sparxMathsAutocomplete(
                         task.taskIndex
                     );
 
-                for (
-                    let i = 0;
-                    i < 50;
-                    i++
-                ) {
+                if (cancelled) break;
 
+                for (let i = 0; i < 50; i++) {
+                    if (cancelled) break;
                     await sparxMathsExecuter.answerTimesTable(
                         activityIndex
                     );
@@ -1025,35 +814,28 @@ async function sparxMathsAutocomplete(
                 continue;
             }
 
-
             const taskItems =
                 await sparxMaths.getTasksItems(
                     packageID,
                     task.taskIndex
                 );
 
-            let index =
-                1;
+            if (cancelled) break;
 
+            let index = 1;
 
             while (true) {
 
-                if (
-                    taskItems[index - 1]?.status ===
-                    1
-                ) {
+                if (cancelled) break;
 
+                if (taskItems[index - 1]?.status === 1) {
                     index++;
                     continue;
-
                 } else if (
-                    taskItems[index - 1]?.status ===
-                    undefined
+                    taskItems[index - 1]?.status === undefined
                 ) {
-
                     break;
                 }
-
 
                 const item =
                     await sparxMaths.getActivity(
@@ -1063,21 +845,14 @@ async function sparxMathsAutocomplete(
                         index
                     );
 
-                if (
-                    item === 'break'
-                ) {
-                    break;
-                }
+                if (cancelled) break;
+                if (item === 'break') break;
 
-
-                async function completeBookwork(
-                    item
-                ) {
+                async function completeBookwork(item) {
 
                     if (
                         !item ||
-                        item?.payload?.oneofKind ===
-                        undefined
+                        item?.payload?.oneofKind === undefined
                     ) {
 
                         const bookworkInitialData =
@@ -1089,24 +864,21 @@ async function sparxMathsAutocomplete(
                                 1
                             );
 
-                        const folderPath =
-                            path.join(
-                                __dirname,
-                                'tasks_temp'
-                            );
+                        if (cancelled) return true;
 
-                        const filePath =
-                            path.join(
-                                folderPath,
-                                `${index}_bookwork_${task.taskIndex}.json`
-                            );
+                        const folderPath = path.join(
+                            __dirname,
+                            'tasks_temp'
+                        );
+
+                        const filePath = path.join(
+                            folderPath,
+                            `${index}_bookwork_${task.taskIndex}.json`
+                        );
 
                         fs.mkdirSync(
                             path.dirname(filePath),
-                            {
-                                recursive:
-                                    true
-                            }
+                            { recursive: true }
                         );
 
                         fs.writeFileSync(
@@ -1126,14 +898,18 @@ async function sparxMathsAutocomplete(
                             `Answering Bookwork Check...`
                         );
 
+                        if (cancelled) return true;
+
+                        const bookworkRow =
+                            await getBookworks(packageID);
+
+                        if (cancelled) return true;
+
                         const bookmarks =
                             stripWorkingOut(
-                                JSON.parse(
-                                    (
-                                        await getBookworks(
-                                            packageID
-                                        )
-                                    ).bookworks
+                                parseBookworksColumn(
+                                    bookworkRow &&
+                                        bookworkRow.bookworks
                                 )
                             );
 
@@ -1145,9 +921,9 @@ async function sparxMathsAutocomplete(
                                 bookmarks
                             );
 
-                        if (
-                            bookmarksCorrectAnswer
-                        ) {
+                        if (cancelled) return true;
+
+                        if (bookmarksCorrectAnswer) {
 
                             log.logToFile(
                                 bookmarksCorrectAnswer
@@ -1161,17 +937,9 @@ async function sparxMathsAutocomplete(
                                 );
 
                             await sparxMathsExecuter
-                                .readyBookwork(
-                                    activityIndex
-                                );
+                                .readyBookwork(activityIndex);
 
-                            log.logToFile(
-                                '!!!'
-                            );
-
-                            log.logToFile(
-                                bookworkAnswer
-                            );
+                            if (cancelled) return true;
 
                             await sparxMathsExecuter
                                 .answerQuestion(
@@ -1182,22 +950,19 @@ async function sparxMathsAutocomplete(
                             return true;
                         }
 
-
                         log.logToFile(
                             "Bookwork not found in the stuff"
                         );
 
-                        let commonAnswersPrevious =
-                            [];
-
-                        let counterComplete =
-                            0;
+                        let commonAnswersPrevious = [];
+                        let counterComplete = 0;
 
                         while (
-                            commonAnswersPrevious.length !==
-                                1 &&
+                            commonAnswersPrevious.length !== 1 &&
                             counterComplete < 15
                         ) {
+
+                            if (cancelled) break;
 
                             const data =
                                 await sparxMaths.getActivity(
@@ -1208,8 +973,9 @@ async function sparxMathsAutocomplete(
                                     1
                                 );
 
-                            activityIndex =
-                                data.activityIndex;
+                            if (cancelled) break;
+
+                            activityIndex = data.activityIndex;
 
                             const commonAnswers =
                                 getBookworkCheckAnswer(
@@ -1219,10 +985,20 @@ async function sparxMathsAutocomplete(
 
                             commonAnswersPrevious =
                                 commonAnswers;
-
                             counterComplete++;
                         }
 
+                        if (cancelled) return true;
+
+                        if (
+                            !commonAnswersPrevious ||
+                            commonAnswersPrevious.length === 0
+                        ) {
+                            log.logToFile(
+                                '[Sparx Maths] bookwork convergence failed; skipping'
+                            );
+                            return true;
+                        }
 
                         const bookworkAnswer =
                             parseBookwork(
@@ -1232,9 +1008,9 @@ async function sparxMathsAutocomplete(
                             );
 
                         await sparxMathsExecuter
-                            .readyBookwork(
-                                activityIndex
-                            );
+                            .readyBookwork(activityIndex);
+
+                        if (cancelled) return true;
 
                         await sparxMathsExecuter
                             .answerQuestion(
@@ -1248,32 +1024,21 @@ async function sparxMathsAutocomplete(
                     return false;
                 }
 
+                if (await completeBookwork(item)) continue;
 
-                if (
-                    await completeBookwork(item)
-                ) {
-                    continue;
-                }
-
-
-                if (cancelled) {
-                    break;
-                }
-
+                if (cancelled) break;
 
                 await progressUpdater.updateEmbed(
                     `📝 Starting Question ${index} at ${task.title}...`
                 );
 
+                if (cancelled) break;
+
                 log.logToFile(
                     `📝 Starting Question ${index} at ${task.title}...`
                 );
 
-
-                if (
-                    taskItems[index - 1].status ===
-                    1
-                ) {
+                if (taskItems[index - 1]?.status === 1) {
 
                     await progressUpdater.updateEmbed(
                         `Question ${index} at ${task.title} already finished, moving onto next question...`
@@ -1284,22 +1049,15 @@ async function sparxMathsAutocomplete(
                     );
 
                     index++;
-
                     continue;
                 }
-
 
                 sparxMathsExecuter.currentBookmark =
                     item.payload.question.bookworkCode;
 
+                async function attemptQuestion(attempts = 1) {
 
-                async function attemptQuestion(
-                    attempts = 1
-                ) {
-
-                    if (cancelled) {
-                        return 'break';
-                    }
+                    if (cancelled) return 'break';
 
                     const item =
                         await sparxMaths.getActivity(
@@ -1309,58 +1067,42 @@ async function sparxMathsAutocomplete(
                             index
                         );
 
-                    if (
-                        item === 'break'
-                    ) {
-                        return 'break';
-                    }
+                    if (cancelled) return 'break';
+                    if (item === 'break') return 'break';
 
-                    if (
-                        await completeBookwork(item)
-                    ) {
+                    if (await completeBookwork(item)) {
                         return 'continue';
                     }
 
-                    const model =
-                        ai[attempts - 1];
+                    if (cancelled) return 'break';
 
-                    if (
-                        !model &&
-                        attempts > 1
-                    ) {
+                    const model = ai[attempts - 1];
+
+                    if (!model && attempts > 1) {
                         return 'blank';
                     }
 
-                    const activityIndex =
-                        item.activityIndex;
-
+                    const activityIndex = item.activityIndex;
                     const questionIndex =
                         item.payload.question.questionIndex;
-
                     const questionLayout =
                         JSON.parse(
                             item.payload.question.questionSpec
                         );
 
+                    const folderPath = path.join(
+                        __dirname,
+                        'tasks_temp'
+                    );
 
-                    const folderPath =
-                        path.join(
-                            __dirname,
-                            'tasks_temp'
-                        );
-
-                    const filePath =
-                        path.join(
-                            folderPath,
-                            `${index}_${task.taskIndex}.json`
-                        );
+                    const filePath = path.join(
+                        folderPath,
+                        `${index}_${task.taskIndex}.json`
+                    );
 
                     fs.mkdirSync(
                         path.dirname(filePath),
-                        {
-                            recursive:
-                                true
-                        }
+                        { recursive: true }
                     );
 
                     fs.writeFileSync(
@@ -1373,17 +1115,14 @@ async function sparxMathsAutocomplete(
                         'utf8'
                     );
 
-
-                    log.logToFile(
-                        item
-                    );
-
+                    log.logToFile(item);
 
                     await sparxMathsExecuter.readyQuestion(
                         questionIndex,
                         activityIndex
                     );
 
+                    if (cancelled) return 'break';
 
                     let workingOut;
 
@@ -1395,33 +1134,22 @@ async function sparxMathsAutocomplete(
                             interaction
                         );
 
-                    if (
-                        questionObjectSend
-                    ) {
+                    if (cancelled) return 'break';
+
+                    if (questionObjectSend) {
                         workingOut =
                             await getWorkingOut(
                                 item.payload.question.questionSpec
                             );
+
+                        if (cancelled) return 'break';
                     }
 
-                    let alreadyInDB =
-                        true;
+                    let alreadyInDB = true;
 
-
-                    console.log(
-                        `No ai check:`,
-                        !questionObjectSend &&
-                        !ai[0]
-                    );
-
-
-                    if (
-                        !questionObjectSend &&
-                        !ai[0]
-                    ) {
+                    if (!questionObjectSend && !ai[0]) {
                         return 'blank';
                     }
-
 
                     if (
                         !questionObjectSend ||
@@ -1432,8 +1160,7 @@ async function sparxMathsAutocomplete(
                         )
                     ) {
 
-                        alreadyInDB =
-                            false;
+                        alreadyInDB = false;
 
                         questionObjectSend =
                             await getAIanswer(
@@ -1454,6 +1181,7 @@ async function sparxMathsAutocomplete(
                                 () => cancelled
                             );
 
+                        if (cancelled) return 'break';
                     } else {
 
                         questionObjectSend
@@ -1466,26 +1194,22 @@ async function sparxMathsAutocomplete(
                                 .question
                                 .answer
                                 .components
-                                .map(
-                                    JSON.parse
-                                );
+                                .map(JSON.parse);
                     }
 
-
-                    if (
-                        wantWorkingOut
-                    ) {
-
-                        workingOut =
-                            getWorkingOutData(
-                                questionObjectSend
-                                    .action
-                                    .question
-                                    .answer
-                                    .components
-                            );
+                    if (questionObjectSend === 'break') {
+                        return 'break';
                     }
 
+                    if (wantWorkingOut) {
+                        workingOut = getWorkingOutData(
+                            questionObjectSend
+                                .action
+                                .question
+                                .answer
+                                .components
+                        );
+                    }
 
                     log.logToFile(
                         questionObjectSend?.action?.question?.answer?.components,
@@ -1493,6 +1217,18 @@ async function sparxMathsAutocomplete(
                         workingOut
                     );
 
+                    if (attempts === 1) {
+
+                        await sparxMathsExecuter
+                            .waitBetweenQuestions(
+                                index,
+                                task.title,
+                                progressUpdater,
+                                () => cancelled
+                            );
+
+                        if (cancelled) return 'break';
+                    }
 
                     const questionSuccess =
                         await sparxMathsExecuter
@@ -1500,18 +1236,17 @@ async function sparxMathsAutocomplete(
                                 questionObjectSend,
                                 sparxMathsExecuter,
                                 workingOut,
-                                parseQuestion(
-                                    questionLayout[0]
-                                )
+                                parseQuestion(questionLayout[0])
                             );
 
+                    if (cancelled) return 'break';
 
-                    if (
-                        questionSuccess
-                    ) {
+                    const isFullSuccess =
+                        questionSuccess === true;
+
+                    if (isFullSuccess) {
                         task.numTaskItemsDone++;
                     }
-
 
                     await progressUpdater.updateProgressBar(
                         task.taskIndex - 1,
@@ -1519,11 +1254,9 @@ async function sparxMathsAutocomplete(
                         task.numTaskItems
                     );
 
+                    if (cancelled) return 'break';
 
-                    if (
-                        questionSuccess &&
-                        !alreadyInDB
-                    ) {
+                    if (isFullSuccess && !alreadyInDB) {
 
                         await addToDb(
                             item.payload.question.questionSpec,
@@ -1534,71 +1267,67 @@ async function sparxMathsAutocomplete(
                                 .components
                         );
 
-                        if (
-                            workingOut
-                        ) {
+                        if (cancelled) return 'break';
 
+                        if (workingOut) {
                             await addWorkingOut(
                                 item.payload.question.questionSpec,
                                 workingOut
                             );
+
+                            if (cancelled) return 'break';
                         }
                     }
 
+                    if (!isFullSuccess && attempts < 3) {
 
-                    if (
-                        !questionSuccess &&
-                        attempts < 3
-                    ) {
-
-                        if (
-                            attempts === 1
-                        ) {
-
+                        if (attempts === 1) {
                             await progressUpdater.updateEmbed(
                                 `🔄 Retrying Question ${index} at ${task.title}...`
                             );
-
-                        } else if (
-                            attempts === 2
-                        ) {
-
+                        } else if (attempts === 2) {
                             await progressUpdater.updateEmbed(
                                 `🔄 Retrying Question ${index} at ${task.title}...`
                             );
-
                         }
+
+                        if (cancelled) return 'break';
 
                         return await attemptQuestion(
                             attempts + 1
                         );
                     }
-                }
 
+                    if (!isFullSuccess && attempts >= 3) {
+                        log.logToFile(
+                            `[Sparx Maths] question ${index} at ${task.title} failed after ${attempts} attempts (last=${questionSuccess})`
+                        );
+                        await progressUpdater.updateEmbed(
+                            `⚠️ Question ${index} at ${task.title} failed after 3 attempts, moving on...`
+                        );
+                        return 'blank';
+                    }
+                }
 
                 await progressUpdater.updateEmbed(
                     `📝 Answering Question ${index} at ${task.title}...`
                 );
 
+                if (cancelled) break;
+
                 const attemptQuestionResponse =
                     await attemptQuestion();
 
-
-                if (
-                    attemptQuestionResponse ===
-                    'break'
-                ) {
+                if (attemptQuestionResponse === 'break') {
                     break;
                 } else if (
-                    attemptQuestionResponse ===
-                    'continue'
+                    attemptQuestionResponse === 'continue'
                 ) {
                     continue;
                 }
 
                 index++;
             }
-
 
             await progressUpdater.updateEmbed(
                 `✅ Completed ${task.title}`
@@ -1607,64 +1336,73 @@ async function sparxMathsAutocomplete(
 
     } catch (err) {
 
-        log.logToFile(
-            err
-        );
-
-        logError(
-            err,
-            null,
-            'Sparx Maths'
-        );
-
-        errorOccured =
-            true;
+        log.logToFile(err);
+        logError(err, null, 'Sparx Maths');
+        errorOccured = true;
 
     } finally {
 
-        await log.sendToWebhook();
+        if (collector) {
+            try { collector.stop(); } catch (e) {
+                console.error('[Sparx Maths] collector.stop failed:', e);
+            }
+        }
+
+        try { await log.sendToWebhook(); } catch (e) {
+            console.error('[Sparx Maths] log.sendToWebhook failed:', e);
+        }
+
+        try { await sparxMathsExecuter.sendBookWork(); } catch (e) {
+            console.error('[Sparx Maths] sendBookWork failed:', e);
+        }
 
         try {
-
-            await sparxMathsExecuter.sendBookWork();
-
-        } catch (dmError) {
-
+            if (errorOccured) {
+                await progressUpdater.updateEmbed(
+                    `An Unexpected Error has occured!`
+                );
+            } else {
+                await progressUpdater.updateEmbed(`Finished`);
+            }
+        } catch (e) {
             console.error(
-                'Failed to send feedback DM:',
-                dmError
+                '[Sparx Maths] progressUpdater.updateEmbed (final) failed:', e
             );
         }
 
+        try { await progressUpdater.end(); } catch (e) {
+            console.error('[Sparx Maths] progressUpdater.end failed:', e);
+        }
 
-        if (errorOccured) {
-
-            await progressUpdater.updateEmbed(
-                `An Unexpected Error has occured!`
+        try {
+            await updateStats(
+                interaction.user.id,
+                'maths',
+                (process.hrtime(taskTimer))[0]
             );
+        } catch (e) {
+            console.error('[Sparx Maths] updateStats failed:', e);
+        }
 
-        } else {
-
-            await progressUpdater.updateEmbed(
-                `Finished`
+        try {
+            delete userAutocompleters[interaction.user.id];
+        } catch (e) {
+            console.error(
+                '[Sparx Maths] delete userAutocompleters failed:', e
             );
         }
 
-
-        await progressUpdater.end();
-
-        await updateStats(
-            interaction.user.id,
-            'maths',
-            sparxMathsExecuter.totalFakeTime
-        );
-
-        await queueMaths.terminateSession(
-            interaction.user.id
-        );
+        try {
+            await queueMaths.terminateSession(
+                interaction.user.id
+            );
+        } catch (e) {
+            console.error(
+                '[Sparx Maths] queueMaths.terminateSession failed:', e
+            );
+        }
     }
 }
-
 
 module.exports = {
     sparxMathsAutocomplete,
