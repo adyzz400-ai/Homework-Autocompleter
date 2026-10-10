@@ -1,5 +1,5 @@
-// Recursive function to extract question text
 const { GoogleGenAI } = require("@google/genai");
+
 function extractText(obj, results = []) {
   if (typeof obj === "object" && obj !== null) {
     if ("text" in obj && typeof obj.text === "string") {
@@ -28,7 +28,6 @@ function extractQuestionText(content) {
     return text;
 }
 
-// Recursive function to extract answer parts
 function extractAnswerParts(content) {
     if (!content) return [];
     let parts = [];
@@ -45,7 +44,6 @@ function extractAnswerParts(content) {
     return parts;
 }
 
-// Recursive function to extract images
 function extractImages(content) {
     if (!content) return [];
     let images = [];
@@ -58,7 +56,6 @@ function extractImages(content) {
     return images;
 }
 
-// Extract slot-based answer options
 function extractSlotCards(input) {
     const slotMapping = {};
     if (!input.slot_groups || !input.cards) return slotMapping;
@@ -78,7 +75,6 @@ function extractSlotCards(input) {
     return slotMapping;
 }
 
-// Extract multiple-choice options
 function extractChoices(input) {
     if (!input.choices) return {};
     const choices = {};
@@ -91,7 +87,6 @@ function extractChoices(input) {
     return choices;
 }
 
-// Extract choice groups
 function extractChoiceGroups(input) {
     if (!input.choice_groups) return [];
     const groups = [];
@@ -108,9 +103,6 @@ function extractChoiceGroups(input) {
     return groups;
 }
 
-// Extract number fields
-// Recursive function to extract number fields from layout
-// Extract number fields with their preceding text
 function extractNumberFieldsWithLabels(content, number_fields) {
     if (!content) return [];
     let fields = [];
@@ -119,11 +111,9 @@ function extractNumberFieldsWithLabels(content, number_fields) {
         for (let i = 0; i < content.length; i++) {
             const item = content[i];
 
-            // If it's a number-field, capture the nearest text before it
             if (item.element === 'number-field' && item.ref) {
                 let label = null;
 
-                // Look back for the nearest text element
                 if (i > 0 && content[i - 1].element === 'text') {
                     label = content[i - 1].text;
                 }
@@ -131,7 +121,6 @@ function extractNumberFieldsWithLabels(content, number_fields) {
                 fields.push({ ref: item.ref, label, properties: number_fields[item.ref] });
             }
 
-            // Recurse if this item has nested content
             if (item.content) {
                 fields = fields.concat(extractNumberFieldsWithLabels(item.content, number_fields));
             }
@@ -139,7 +128,6 @@ function extractNumberFieldsWithLabels(content, number_fields) {
         return fields;
     }
 
-    // Recurse single object
     if (content.content) {
         fields = fields.concat(extractNumberFieldsWithLabels(content.content, number_fields));
     }
@@ -147,13 +135,10 @@ function extractNumberFieldsWithLabels(content, number_fields) {
     return fields;
 }
 
-
-// Extract text fields
 function extractTextFields(input) {
     return input.text_fields ? Object.keys(input.text_fields) : [];
 }
 
-// Main parser function
 function parseQuestion(json) {
     const layoutContent = json.layout.content;
 
@@ -206,7 +191,6 @@ function getQuestionObject(aiAnswered, activityIndex, questionIndex, interaction
         "timestamp": userAutocompleters[interaction.user.id].getTimestamp(true)
     };
 
-    // console.log(answerObject.action.question.answer.components);
     return answerObject;
 }
 
@@ -226,8 +210,8 @@ async function parseBookworkData(data, bookmarks) {
     for (const bookmark of parsedBookwork) {
 
         const bookmarkParsed = bookmark.filledAnswerTemplate
-            .replace(/<[^>]*>/g, ' ') // replace tags with spaces
-            .replace(/\s+/g, ' ')     // normalize multiple spaces
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
             .trim();
 
         if (bookmarks?.[bookworkCode] && bookmarkParsed === bookmarks[bookworkCode]) {
@@ -237,16 +221,6 @@ async function parseBookworkData(data, bookmarks) {
     }
 
     console.log("Not found answer");
-    
-    /*
-    if (parsedBookwork.length > 0) {
-        const randomIndex = Math.floor(Math.random() * parsedBookwork.length);
-        const randomBookmark = parsedBookwork[randomIndex];
-        console.log(`Selected random answer: ${randomBookmark.filledAnswerTemplate}`);
-        return { answerMarkup: randomBookmark.filledAnswerTemplate, components: { key: randomBookmark.key, value: randomBookmark.value}};
-    }
-    */
-    
     return null;
 }
 
@@ -274,8 +248,6 @@ function parseBookwork(activityIndex, parsedBookworkAnswer, interaction) {
     };
 
     return answer;
-
-    // console.log(parsedBookwork);
 }
 
 async function parser(apikey, data, activityIndex, questionIndex, model, interaction) {
@@ -289,7 +261,12 @@ async function parser(apikey, data, activityIndex, questionIndex, model, interac
         newClass.ai = new GoogleGenAI({ apiKey: apikey });
         gemAns = newClass;
     }
-    const aiAnswered = await gemAns.answerQuestion(parsedData, model);
+
+    const cookies =
+        userAutocompleters?.[interaction.user.id]
+            ?.sparxMaths?.cookies;
+
+    const aiAnswered = await gemAns.answerQuestion(parsedData, model, 'maths', undefined, cookies);
     console.log(aiAnswered);
 
     if (typeof aiAnswered === 'number') return aiAnswered;
