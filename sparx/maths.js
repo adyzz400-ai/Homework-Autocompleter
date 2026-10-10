@@ -12,313 +12,6 @@ const {
 const SparxBase =
     require('./sparxBase.js');
 
-/*
- * ============================================================
- * Minimal protobuf wire-format decoder for ListStudentPackages.
- *
- * The server response is a repeated PackageCompletion message.
- * The generated sm_code.js doesn't include the modern protobuf
- * definitions, so we walk the wire format by hand.
- *
- * Field map (from the client PackageCompletion shape):
- *
- *   1  packageID        (string)
- *   2  startDate        (Timestamp: {1:seconds, 2:nanos})
- *   3  endDate          (Timestamp: {1:seconds, 2:nanos})
- *   4  title            (string)
- *   5  packageType      (string)
- *   6  numTasks         (int32)
- *   7  numTaskItems     (int32)
- *   8  numTaskItemsDone (int32)
- *  10  numTasksComplete (int32)
- *
- * If any of those numbers are wrong the debug log will show it
- * and the map gets patched — see the `[PackageDecode]` lines.
- * ============================================================
- */
-
-class WireReader {
-
-    constructor(bytes) {
-        this.bytes =
-            bytes instanceof Uint8Array
-                ? bytes
-                : new Uint8Array(bytes);
-        this.pos = 0;
-    }
-
-    eof() {
-        return this.pos >= this.bytes.length;
-    }
-
-    readVarint() {
-        let result = 0;
-        let shift = 0;
-        let byte;
-        do {
-            if (this.pos >= this.bytes.length) {
-                throw new Error(
-                    'truncated varint'
-                );
-            }
-            byte = this.bytes[this.pos++];
-            result +=
-                (byte & 0x7f) * Math.pow(2, shift);
-            shift += 7;
-        } while (byte & 0x80 && shift < 64);
-        return result;
-    }
-
-    readTag() {
-        const tag = this.readVarint();
-        const fieldNumber = tag >>> 3;
-        const wireType = tag & 0x07;
-        return { fieldNumber, wireType };
-    }
-
-    readBytes(length) {
-        const slice =
-            this.bytes.subarray(
-                this.pos,
-                this.pos + length
-            );
-        this.pos += length;
-        return slice;
-    }
-
-    readString() {
-        const length = this.readVarint();
-        const slice = this.readBytes(length);
-        return Buffer.from(slice).toString('utf8');
-    }
-
-    skip(wireType) {
-        switch (wireType) {
-            case 0:
-                this.readVarint();
-                break;
-            case 1:
-                this.pos += 8;
-                break;
-            case 2: {
-                const length = this.readVarint();
-                this.pos += length;
-                break;
-            }
-            case 5:
-                this.pos += 4;
-                break;
-            default:
-                throw new Error(
-                    `unsupported wire type ${wireType}`
-                );
-        }
-    }
-}
-
-/*
- * ============================================================
- * Timestamp submessage
- * ============================================================
- */
-
-function parseTimestamp(buffer) {
-    const reader = new WireReader(buffer);
-    const out = { seconds: 0, nanos: 0 };
-    while (!reader.eof()) {
-        const { fieldNumber, wireType } =
-            reader.readTag();
-        if (fieldNumber === 1 && wireType === 0) {
-            out.seconds = reader.readVarint();
-        } else if (
-            fieldNumber === 2 &&
-            wireType === 0
-        ) {
-            out.nanos = reader.readVarint();
-        } else {
-            reader.skip(wireType);
-        }
-    }
-    return out;
-}
-
-/*
- * ============================================================
- * PackageCompletion
- * ============================================================
- */
-
-function parsePackageCompletion(
-    buffer,
-    debug = false,
-    debugTag = ''
-) {
-    const reader = new WireReader(buffer);
-
-    const pkg = {
-        packageID: null,
-        title: null,
-        startDate: null,
-        endDate: null,
-        packageType: null,
-        numTasks: 0,
-        numTaskItems: 0,
-        numTaskItemsDone: 0,
-        numTasksComplete: 0
-    };
-
-    while (!reader.eof()) {
-
-        let tag;
-        try {
-            tag = reader.readTag();
-        } catch (err) {
-            break;
-        }
-
-        const { fieldNumber, wireType } = tag;
-
-        if (debug) {
-            // log field number, wire type, and a short peek of
-            // the raw value — helps us map unknown field numbers
-            const peekStart = reader.pos;
-            console.log(
-                `[PackageDecode]${debugTag} field=${fieldNumber} wire=${wireType} peekStart=${peekStart}`
-            );
-        }
-
-        try {
-            switch (fieldNumber) {
-
-                case 1: // packageID (string)
-                    pkg.packageID = reader.readString();
-                    break;
-
-                case 2: // startDate (Timestamp)
-                case 3: { // endDate (Timestamp)
-                    const length =
-                        reader.readVarint();
-                    const sub =
-                        reader.readBytes(length);
-                    const ts = parseTimestamp(sub);
-                    if (fieldNumber === 2) {
-                        pkg.startDate = ts;
-                    } else {
-                        pkg.endDate = ts;
-                    }
-                    break;
-                }
-
-                case 4: // title (string)
-                    pkg.title = reader.readString();
-                    break;
-
-                case 5: // packageType (string)
-                    pkg.packageType =
-                        reader.readString();
-                    break;
-
-                case 6: // numTasks (int32)
-                    pkg.numTasks =
-                        reader.readVarint();
-                    break;
-
-                case 7: // numTaskItems (int32)
-                    pkg.numTaskItems =
-                        reader.readVarint();
-                    break;
-
-                case 8: // numTaskItemsDone (int32)
-                    pkg.numTaskItemsDone =
-                        reader.readVarint();
-                    break;
-
-                case 10: // numTasksComplete (int32)
-                    pkg.numTasksComplete =
-                        reader.readVarint();
-                    break;
-
-                default:
-                    reader.skip(wireType);
-                    break;
-            }
-        } catch (err) {
-            // if we mis-guess a field, log and bail out of this
-            // package rather than corrupting the rest
-            if (debug) {
-                console.log(
-                    `[PackageDecode] parse error at field ${fieldNumber}: ${err.message}`
-                );
-            }
-            break;
-        }
-    }
-
-    return pkg;
-}
-
-/*
- * ============================================================
- * ListStudentPackagesResponse
- *
- * The response is a single top-level message with repeated
- * PackageCompletion entries. If the outer message wraps them
- * in a named field, we detect that here by checking wire types.
- * ============================================================
- */
-
-function parseListStudentPackagesResponse(
-    buffer,
-    debug = false
-) {
-    const reader = new WireReader(buffer);
-    const packages = [];
-
-    // Top-level: repeated field, most likely 1 (packages),
-    // each a length-delimited PackageCompletion.
-    // Other fields are skipped.
-
-    while (!reader.eof()) {
-
-        let tag;
-        try {
-            tag = reader.readTag();
-        } catch (err) {
-            break;
-        }
-
-        const { fieldNumber, wireType } = tag;
-
-        if (debug) {
-            console.log(
-                `[PackageDecode] topLevel field=${fieldNumber} wire=${wireType} pos=${reader.pos}`
-            );
-        }
-
-        if (wireType === 2) {
-            const length = reader.readVarint();
-            const sub = reader.readBytes(length);
-
-            // Assume any length-delimited top-level field is a
-            // PackageCompletion entry. The debug log will tell
-            // us if that's wrong.
-            const pkg = parsePackageCompletion(
-                sub,
-                debug && packages.length < 3,
-                ` pkg=${packages.length}`
-            );
-
-            if (pkg.packageID) {
-                packages.push(pkg);
-            }
-        } else {
-            reader.skip(wireType);
-        }
-    }
-
-    return { packages };
-}
-
 class SparxMaths extends SparxBase {
 
     constructor(
@@ -701,6 +394,79 @@ class SparxMaths extends SparxBase {
         return strings;
     }
 
+    /*
+     * ============================================================
+     * Homework string classification
+     *
+     * The server's response contains a printable-strings channel
+     * that carries everything the sparx web app renders. We use
+     * that channel directly instead of decoding protobuf.
+     *
+     * Recognised shapes:
+     *   "packages/<uuid>"         -> package start marker
+     *   "assignments/<uuid>"      -> ignore
+     *   "curriculums/<uuid>"      -> ignore
+     *   "#Homework due <text>"    -> title + due (title/due split)
+     *   "#<Title> due <text>"     -> title + due (title/due split)
+     *   "Homework" / "homework "  -> title fallback
+     *   everything else           -> ignore
+     * ============================================================
+     */
+
+    classifyString(value) {
+
+        const trimmed =
+            String(value || '').trim();
+
+        if (!trimmed) return null;
+
+        // Package start marker
+        const pkgMatch =
+            trimmed.match(
+                /^[-*]?\s*packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+            );
+
+        if (pkgMatch) {
+            return {
+                kind: 'package',
+                packageID: pkgMatch[1]
+            };
+        }
+
+        // Ignore assignments + curriculums
+        if (
+            /^(?:[-*]\s*)?(?:assignments|curriculums)\//i.test(
+                trimmed
+            )
+        ) {
+            return { kind: 'ignore' };
+        }
+
+        // Title + due date (rendered by the web app)
+        const dueMatch =
+            trimmed.match(
+                /^#?\s*(.+?)\s+due\s+(.+?)\s*$/i
+            );
+
+        if (dueMatch) {
+            return {
+                kind: 'titleDue',
+                title: dueMatch[1].trim(),
+                dueText: dueMatch[2].trim()
+            };
+        }
+
+        // Bare title fallback
+        if (/^#?\s*homework\s*$/i.test(trimmed)) {
+            return {
+                kind: 'titleOnly',
+                title: 'Homework'
+            };
+        }
+
+        return { kind: 'ignore' };
+    }
+
     async getHomeworks() {
 
         console.log(
@@ -770,7 +536,6 @@ class SparxMaths extends SparxBase {
             };
         }
 
-        // Strip the 5-byte gRPC-Web frame before parsing.
         let payload = response.data;
         if (payload.length >= 5) {
             const view = new DataView(
@@ -790,56 +555,117 @@ class SparxMaths extends SparxBase {
             }
         }
 
-        console.log(
-            '[Sparx] payload bytes after gRPC frame:',
-            payload.length
-        );
-
-        const debugThisRun = true;
-
-        let parsedPackages = [];
-
-        try {
-            const parsed =
-                parseListStudentPackagesResponse(
-                    payload,
-                    debugThisRun
-                );
-            parsedPackages = parsed.packages;
-        } catch (err) {
-            console.error(
-                '[Sparx] protobuf decode failed:',
-                err.message
-            );
-        }
-
-        console.log(
-            '[Sparx] Decoded packages:',
-            parsedPackages.length
-        );
-
-        console.log(
-            '[Sparx] Decoded sample:',
-            JSON.stringify(
-                parsedPackages.slice(0, 5),
-                null,
-                2
-            )
-        );
-
-        // Also keep the old string-scraper output for cross-check.
         const strings =
             this.extractPrintableStringsFromBytes(
                 payload
             );
 
         console.log(
-            '[Sparx] Modern package strings count:',
+            '[Sparx] Modern package strings:',
             strings.length
         );
 
+        /*
+         * Walk the printable-strings list. Every time we see a
+         * "packages/<uuid>" string, start a new package. The next
+         * titleDue or titleOnly string that follows (before the
+         * next package marker) sets the title and due text.
+         */
+
+        const packages = [];
+        let currentPackage = null;
+
+        for (const value of strings) {
+
+            const classified =
+                this.classifyString(value);
+
+            if (!classified) continue;
+
+            if (classified.kind === 'package') {
+
+                if (currentPackage) {
+                    packages.push(currentPackage);
+                }
+
+                currentPackage = {
+                    packageID: classified.packageID,
+                    title: 'Homework',
+                    dueText: null,
+                    // The counts are not present in the string
+                    // channel; the dropdown shows 0% until we
+                    // have a real protobuf decoder.
+                    numTaskItems: 0,
+                    numTaskItemsDone: 0,
+                    numTasks: 0,
+                    numTasksComplete: 0
+                };
+
+                continue;
+            }
+
+            if (!currentPackage) continue;
+
+            if (classified.kind === 'titleDue') {
+
+                // Only take the first titleDue line per package.
+                if (!currentPackage.dueText) {
+                    currentPackage.title =
+                        classified.title;
+                    currentPackage.dueText =
+                        classified.dueText;
+                }
+                continue;
+            }
+
+            if (classified.kind === 'titleOnly') {
+
+                // Fallback title, only if nothing better has been
+                // captured yet for this package.
+                if (
+                    currentPackage.title ===
+                        'Homework' &&
+                    !currentPackage.dueText
+                ) {
+                    currentPackage.title =
+                        classified.title;
+                }
+                continue;
+            }
+        }
+
+        if (currentPackage) {
+            packages.push(currentPackage);
+        }
+
+        // Deduplicate by packageID (the response often repeats
+        // each package block across the two requests).
+        const uniquePackages = [];
+        const seen = new Set();
+
+        for (const pkg of packages) {
+            if (!pkg.packageID) continue;
+            if (seen.has(pkg.packageID)) continue;
+            seen.add(pkg.packageID);
+            uniquePackages.push(pkg);
+        }
+
+        console.log(
+            '[Sparx] Modern packages found:',
+            uniquePackages.length
+        );
+
+        console.log(
+            '[Sparx] Modern packages sample:',
+            JSON.stringify(
+                uniquePackages.slice(0, 10),
+                null,
+                2
+            )
+        );
+
         return {
-            packages: parsedPackages,
+            packages: uniquePackages,
             tasks: [],
             taskItems: []
         };
