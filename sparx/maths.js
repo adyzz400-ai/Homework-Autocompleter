@@ -494,15 +494,6 @@ class SparxMaths extends SparxBase {
                 request
             );
 
-        /*
-         * ============================================
-         * ListStudentPackages diagnostics
-         * ============================================
-         * Logged every run so the Render log always
-         * shows the shape of the response, even when
-         * nothing else is wrong.
-         */
-
         console.log(
             '[Sparx] ListStudentPackages HTTP:',
             response?.status
@@ -669,12 +660,6 @@ class SparxMaths extends SparxBase {
             }
         );
 
-        /*
-         * No due-date filter — past and future packages both
-         * stay. Sort ascending by due date, packages without a
-         * parseable date at the end, cap to 25 for Discord's
-         * select-menu limit.
-         */
         const trimmed = sortedPackages.slice(0, 25);
 
         console.log(
@@ -757,9 +742,19 @@ class SparxMaths extends SparxBase {
             if (ampm === 'am' && hour === 12) hour = 0;
         }
 
-        const year = new Date().getFullYear();
-        const d = new Date(
-            year,
+        /*
+         * The display string ("Thursday 16th April 3pm") carries
+         * no year. Pick whichever of {this year, next year} puts
+         * the date in the future. Rolling forward a whole year
+         * is the correct behaviour — if April has already passed
+         * in the current calendar year, the display string is
+         * referring to next April.
+         */
+        const now = new Date();
+        const currentYear = now.getFullYear();
+
+        let candidate = new Date(
+            currentYear,
             month,
             day,
             hour,
@@ -768,15 +763,29 @@ class SparxMaths extends SparxBase {
             0
         );
 
-        const sixMonthsMs =
-            180 * 24 * 60 * 60 * 1000;
-        if (d.getTime() + sixMonthsMs < Date.now()) {
-            d.setFullYear(year + 1);
+        if (
+            Number.isNaN(candidate.getTime())
+        ) {
+            return null;
         }
 
-        return Number.isNaN(d.getTime())
+        if (
+            candidate.getTime() < now.getTime()
+        ) {
+            candidate = new Date(
+                currentYear + 1,
+                month,
+                day,
+                hour,
+                minute,
+                0,
+                0
+            );
+        }
+
+        return Number.isNaN(candidate.getTime())
             ? null
-            : d;
+            : candidate;
     }
 
     async getTasksItems(
