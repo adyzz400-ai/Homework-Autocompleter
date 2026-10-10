@@ -267,26 +267,16 @@ Once selected, you can start the guided completion session.`;
                     `### 🪄 Session Settings`
                 );
 
-        const pdfSet =
-            new TextDisplayBuilder()
-                .setContent(
-`**📜 PDF**
-
-**Answers**  \`\`✅\`\`
-**Questions**  ${this.pdfSettings.question ? '``✅``' : '``❌``'}
-**Working Out**  ${this.pdfSettings.working_out ? '``✅``' : '``❌``'}`
-                );
-
         const minTime =
             new TextDisplayBuilder()
                 .setContent(
-                    `⏰ **Minimum Fake Time**: ${this.min} Seconds`
+                    `⏰ **Minimum Time**: ${this.min} Seconds`
                 );
 
         const maxTime =
             new TextDisplayBuilder()
                 .setContent(
-                    `⏰ **Maximum Fake Time**: ${this.max} Seconds`
+                    `⏰ **Maximum Time**: ${this.max} Seconds`
                 );
 
 
@@ -421,7 +411,6 @@ Once selected, you can start the guided completion session.`;
                 )
                 .addTextDisplayComponents(
                     settingsSetup.data,
-                    pdfSet.data,
                     minTime.data,
                     maxTime.data
                 );
@@ -492,13 +481,13 @@ class ScienceSession extends TimedHomeworkSession {
         const minTime =
             new TextDisplayBuilder()
                 .setContent(
-                    `⏰ **Minimum Fake Time**: ${this.min} Seconds`
+                    `⏰ **Minimum Time**: ${this.min} Seconds`
                 );
 
         const maxTime =
             new TextDisplayBuilder()
                 .setContent(
-                    `⏰ **Maximum Fake Time**: ${this.max} Seconds`
+                    `⏰ **Maximum Time**: ${this.max} Seconds`
                 );
 
 
