@@ -12,6 +12,312 @@ const {
 const SparxBase =
     require('./sparxBase.js');
 
+/*
+ * ============================================================
+ * Minimal protobuf wire-format decoder for ListStudentPackages.
+ *
+ * The server response is a repeated PackageCompletion message.
+ * The generated sm_code.js doesn't include the modern protobuf
+ * definitions, so we walk the wire format by hand.
+ *
+ * Field map (from the client PackageCompletion shape):
+ *
+ *   1  packageID        (string)
+ *   2  startDate        (Timestamp: {1:seconds, 2:nanos})
+ *   3  endDate          (Timestamp: {1:seconds, 2:nanos})
+ *   4  title            (string)
+ *   5  packageType      (string)
+ *   6  numTasks         (int32)
+ *   7  numTaskItems     (int32)
+ *   8  numTaskItemsDone (int32)
+ *  10  numTasksComplete (int32)
+ *
+ * If any of those numbers are wrong the debug log will show it
+ * and the map gets patched — see the `[PackageDecode]` lines.
+ * ============================================================
+ */
+
+class WireReader {
+
+    constructor(bytes) {
+        this.bytes =
+            bytes instanceof Uint8Array
+                ? bytes
+                : new Uint8Array(bytes);
+        this.pos = 0;
+    }
+
+    eof() {
+        return this.pos >= this.bytes.length;
+    }
+
+    readVarint() {
+        let result = 0;
+        let shift = 0;
+        let byte;
+        do {
+            if (this.pos >= this.bytes.length) {
+                throw new Error(
+                    'truncated varint'
+                );
+            }
+            byte = this.bytes[this.pos++];
+            result +=
+                (byte & 0x7f) * Math.pow(2, shift);
+            shift += 7;
+        } while (byte & 0x80 && shift < 64);
+        return result;
+    }
+
+    readTag() {
+        const tag = this.readVarint();
+        const fieldNumber = tag >>> 3;
+        const wireType = tag & 0x07;
+        return { fieldNumber, wireType };
+    }
+
+    readBytes(length) {
+        const slice =
+            this.bytes.subarray(
+                this.pos,
+                this.pos + length
+            );
+        this.pos += length;
+        return slice;
+    }
+
+    readString() {
+        const length = this.readVarint();
+        const slice = this.readBytes(length);
+        return Buffer.from(slice).toString('utf8');
+    }
+
+    skip(wireType) {
+        switch (wireType) {
+            case 0:
+                this.readVarint();
+                break;
+            case 1:
+                this.pos += 8;
+                break;
+            case 2: {
+                const length = this.readVarint();
+                this.pos += length;
+                break;
+            }
+            case 5:
+                this.pos += 4;
+                break;
+            default:
+                throw new Error(
+                    `unsupported wire type ${wireType}`
+                );
+        }
+    }
+}
+
+/*
+ * ============================================================
+ * Timestamp submessage
+ * ============================================================
+ */
+
+function parseTimestamp(buffer) {
+    const reader = new WireReader(buffer);
+    const out = { seconds: 0, nanos: 0 };
+    while (!reader.eof()) {
+        const { fieldNumber, wireType } =
+            reader.readTag();
+        if (fieldNumber === 1 && wireType === 0) {
+            out.seconds = reader.readVarint();
+        } else if (
+            fieldNumber === 2 &&
+            wireType === 0
+        ) {
+            out.nanos = reader.readVarint();
+        } else {
+            reader.skip(wireType);
+        }
+    }
+    return out;
+}
+
+/*
+ * ============================================================
+ * PackageCompletion
+ * ============================================================
+ */
+
+function parsePackageCompletion(
+    buffer,
+    debug = false,
+    debugTag = ''
+) {
+    const reader = new WireReader(buffer);
+
+    const pkg = {
+        packageID: null,
+        title: null,
+        startDate: null,
+        endDate: null,
+        packageType: null,
+        numTasks: 0,
+        numTaskItems: 0,
+        numTaskItemsDone: 0,
+        numTasksComplete: 0
+    };
+
+    while (!reader.eof()) {
+
+        let tag;
+        try {
+            tag = reader.readTag();
+        } catch (err) {
+            break;
+        }
+
+        const { fieldNumber, wireType } = tag;
+
+        if (debug) {
+            // log field number, wire type, and a short peek of
+            // the raw value — helps us map unknown field numbers
+            const peekStart = reader.pos;
+            console.log(
+                `[PackageDecode]${debugTag} field=${fieldNumber} wire=${wireType} peekStart=${peekStart}`
+            );
+        }
+
+        try {
+            switch (fieldNumber) {
+
+                case 1: // packageID (string)
+                    pkg.packageID = reader.readString();
+                    break;
+
+                case 2: // startDate (Timestamp)
+                case 3: { // endDate (Timestamp)
+                    const length =
+                        reader.readVarint();
+                    const sub =
+                        reader.readBytes(length);
+                    const ts = parseTimestamp(sub);
+                    if (fieldNumber === 2) {
+                        pkg.startDate = ts;
+                    } else {
+                        pkg.endDate = ts;
+                    }
+                    break;
+                }
+
+                case 4: // title (string)
+                    pkg.title = reader.readString();
+                    break;
+
+                case 5: // packageType (string)
+                    pkg.packageType =
+                        reader.readString();
+                    break;
+
+                case 6: // numTasks (int32)
+                    pkg.numTasks =
+                        reader.readVarint();
+                    break;
+
+                case 7: // numTaskItems (int32)
+                    pkg.numTaskItems =
+                        reader.readVarint();
+                    break;
+
+                case 8: // numTaskItemsDone (int32)
+                    pkg.numTaskItemsDone =
+                        reader.readVarint();
+                    break;
+
+                case 10: // numTasksComplete (int32)
+                    pkg.numTasksComplete =
+                        reader.readVarint();
+                    break;
+
+                default:
+                    reader.skip(wireType);
+                    break;
+            }
+        } catch (err) {
+            // if we mis-guess a field, log and bail out of this
+            // package rather than corrupting the rest
+            if (debug) {
+                console.log(
+                    `[PackageDecode] parse error at field ${fieldNumber}: ${err.message}`
+                );
+            }
+            break;
+        }
+    }
+
+    return pkg;
+}
+
+/*
+ * ============================================================
+ * ListStudentPackagesResponse
+ *
+ * The response is a single top-level message with repeated
+ * PackageCompletion entries. If the outer message wraps them
+ * in a named field, we detect that here by checking wire types.
+ * ============================================================
+ */
+
+function parseListStudentPackagesResponse(
+    buffer,
+    debug = false
+) {
+    const reader = new WireReader(buffer);
+    const packages = [];
+
+    // Top-level: repeated field, most likely 1 (packages),
+    // each a length-delimited PackageCompletion.
+    // Other fields are skipped.
+
+    while (!reader.eof()) {
+
+        let tag;
+        try {
+            tag = reader.readTag();
+        } catch (err) {
+            break;
+        }
+
+        const { fieldNumber, wireType } = tag;
+
+        if (debug) {
+            console.log(
+                `[PackageDecode] topLevel field=${fieldNumber} wire=${wireType} pos=${reader.pos}`
+            );
+        }
+
+        if (wireType === 2) {
+            const length = reader.readVarint();
+            const sub = reader.readBytes(length);
+
+            // Assume any length-delimited top-level field is a
+            // PackageCompletion entry. The debug log will tell
+            // us if that's wrong.
+            const pkg = parsePackageCompletion(
+                sub,
+                debug && packages.length < 3,
+                ` pkg=${packages.length}`
+            );
+
+            if (pkg.packageID) {
+                packages.push(pkg);
+            }
+        } else {
+            reader.skip(wireType);
+        }
+    }
+
+    return { packages };
+}
 
 class SparxMaths extends SparxBase {
 
@@ -28,13 +334,6 @@ class SparxMaths extends SparxBase {
             encode
         );
     }
-
-
-    /*
-     * ============================================================
-     * GENERIC SPARX REQUEST
-     * ============================================================
-     */
 
     async send(
         url,
@@ -54,7 +353,6 @@ class SparxMaths extends SparxBase {
                     uint8Array
                 );
 
-
             this.log.logToFile(
                 `**Response returned**\nStatus: ${response.status}\n${JSON.stringify(
                     response.headers,
@@ -62,7 +360,6 @@ class SparxMaths extends SparxBase {
                     2
                 )}`
             );
-
 
             if (
                 response.status === 401
@@ -84,7 +381,6 @@ class SparxMaths extends SparxBase {
                 throw err;
             }
 
-
             const grpcStatus =
                 response.headers?.[
                     'grpc-status'
@@ -94,7 +390,6 @@ class SparxMaths extends SparxBase {
                 response.headers?.[
                     'grpc-message'
                 ] || '';
-
 
             if (
                 grpcStatus === '16' ||
@@ -114,7 +409,6 @@ class SparxMaths extends SparxBase {
                     return 'break';
                 }
 
-
                 if (
                     grpcMessage.includes(
                         'PendingWAC'
@@ -127,7 +421,6 @@ class SparxMaths extends SparxBase {
 
                     return null;
                 }
-
 
                 if (
                     grpcMessage.includes(
@@ -148,7 +441,6 @@ class SparxMaths extends SparxBase {
                     );
                 }
 
-
                 const error =
                     new Error(
                         JSON.stringify(
@@ -165,7 +457,6 @@ class SparxMaths extends SparxBase {
                 throw error;
             }
 
-
             return response;
 
         } catch (err) {
@@ -179,9 +470,7 @@ class SparxMaths extends SparxBase {
                     '[Sparx] Re-authenticating after 401...'
                 );
 
-
                 let newAuthToken;
-
 
                 if (
                     this.login?.school
@@ -196,7 +485,6 @@ class SparxMaths extends SparxBase {
                             this.login.app
                         );
 
-
                     if (
                         result?.cookies
                     ) {
@@ -207,7 +495,6 @@ class SparxMaths extends SparxBase {
                         this.curlRequests.cookies =
                             result.cookies;
                     }
-
 
                     if (
                         result?.token &&
@@ -227,7 +514,6 @@ class SparxMaths extends SparxBase {
                             this.cookies
                         );
 
-
                     if (
                         newAuthToken.includes(
                             'Unauthorized'
@@ -238,14 +524,12 @@ class SparxMaths extends SparxBase {
                     }
                 }
 
-
                 if (
                     newAuthToken
                 ) {
 
                     this.authToken =
                         newAuthToken;
-
 
                     this.curlRequests.headers =
                         this.curlRequests.headers.map(
@@ -266,15 +550,12 @@ class SparxMaths extends SparxBase {
                             }
                         );
 
-
                     await this.getClientSession();
-
 
                     console.log(
                         '[Sparx] ClientSession refreshed.'
                     );
                 }
-
 
                 return await this.send(
                     url,
@@ -282,7 +563,6 @@ class SparxMaths extends SparxBase {
                     attempts - 1
                 );
             }
-
 
             if (
                 attempts > 1
@@ -296,7 +576,6 @@ class SparxMaths extends SparxBase {
                         )
                 );
 
-
                 return await this.send(
                     url,
                     uint8Array,
@@ -304,17 +583,9 @@ class SparxMaths extends SparxBase {
                 );
             }
 
-
             throw err;
         }
     }
-
-
-    /*
-     * ============================================================
-     * CLIENT SESSION
-     * ============================================================
-     */
 
     async getClientSession() {
 
@@ -322,19 +593,16 @@ class SparxMaths extends SparxBase {
             '[Sparx ClientSession] Sending request...'
         );
 
-
         const responseBuffer =
             await getClientSession(
                 this.curlRequests
             );
-
 
         const response =
             await this.decodeStuff(
                 responseBuffer,
                 'ClientSessionResponse'
             );
-
 
         if (
             !response ||
@@ -346,10 +614,8 @@ class SparxMaths extends SparxBase {
             );
         }
 
-
         this.sessionId =
             response.sessionId;
-
 
         this.curlRequests.headers =
             this.curlRequests.headers.filter(
@@ -361,94 +627,22 @@ class SparxMaths extends SparxBase {
                         )
             );
 
-
         this.curlRequests.headers.push(
             `x-session-id: ${this.sessionId}`
         );
-
 
         console.log(
             '[Sparx ClientSession] Session ID installed.'
         );
 
-
         return this.sessionId;
     }
-
-
-    /*
-     * ============================================================
-     * MODERN HOMEWORK API
-     * ============================================================
-     *
-     * Current Sparx endpoint:
-     *
-     * /sparx.packageactivity.v1.Packages/ListStudentPackages
-     *
-     * The generated sm_code.js currently doesn't contain the
-     * modern protobuf definitions, so the response is inspected
-     * as raw protobuf data.
-     * ============================================================
-     */
-
-    extractModernPackageStrings(buffer) {
-
-        const bytes =
-            buffer instanceof Uint8Array
-                ? buffer
-                : new Uint8Array(buffer);
-
-
-        /*
-         * Remove gRPC-Web header.
-         */
-
-        if (
-            bytes.length >= 5
-        ) {
-
-            const view =
-                new DataView(
-                    bytes.buffer,
-                    bytes.byteOffset,
-                    bytes.byteLength
-                );
-
-
-            const messageLength =
-                view.getUint32(
-                    1
-                );
-
-
-            if (
-                bytes[0] === 0 &&
-                messageLength <=
-                    bytes.length - 5
-            ) {
-
-                return this.extractPrintableStringsFromBytes(
-                    bytes.slice(
-                        5,
-                        5 + messageLength
-                    )
-                );
-            }
-        }
-
-
-        return this.extractPrintableStringsFromBytes(
-            bytes
-        );
-    }
-
 
     extractPrintableStringsFromBytes(bytes) {
 
         const strings = [];
 
         let current = [];
-
 
         const flush = () => {
 
@@ -461,7 +655,6 @@ class SparxMaths extends SparxBase {
                 return;
             }
 
-
             const value =
                 Buffer
                     .from(current)
@@ -472,7 +665,6 @@ class SparxMaths extends SparxBase {
                     )
                     .trim();
 
-
             if (
                 value.length >= 2
             ) {
@@ -482,10 +674,8 @@ class SparxMaths extends SparxBase {
                 );
             }
 
-
             current = [];
         };
-
 
         for (
             const byte of bytes
@@ -506,13 +696,10 @@ class SparxMaths extends SparxBase {
             }
         }
 
-
         flush();
-
 
         return strings;
     }
-
 
     async getHomeworks() {
 
@@ -528,11 +715,6 @@ class SparxMaths extends SparxBase {
             '[Sparx] ========================================'
         );
 
-
-        /*
-         * Make sure ClientSession exists.
-         */
-
         if (
             !this.sessionId
         ) {
@@ -544,16 +726,6 @@ class SparxMaths extends SparxBase {
             await this.getClientSession();
         }
 
-
-        /*
-         * Empty protobuf request.
-         *
-         * gRPC-Web:
-         *
-         * byte 0    = data frame
-         * bytes 1-4 = message length
-         */
-
         const request =
             Buffer.from([
                 0x00,
@@ -563,11 +735,9 @@ class SparxMaths extends SparxBase {
                 0x00
             ]);
 
-
         console.log(
             '[Sparx] Calling ListStudentPackages...'
         );
-
 
         const response =
             await this.send(
@@ -575,18 +745,15 @@ class SparxMaths extends SparxBase {
                 request
             );
 
-
         console.log(
             '[Sparx] ListStudentPackages HTTP:',
             response?.status
         );
 
-
         console.log(
             '[Sparx] ListStudentPackages bytes:',
             response?.data?.length || 0
         );
-
 
         if (
             !response?.data
@@ -596,7 +763,6 @@ class SparxMaths extends SparxBase {
                 '[Sparx] ListStudentPackages returned no data.'
             );
 
-
             return {
                 packages: [],
                 tasks: [],
@@ -604,209 +770,80 @@ class SparxMaths extends SparxBase {
             };
         }
 
-
-        const strings =
-            this.extractModernPackageStrings(
-                response.data
+        // Strip the 5-byte gRPC-Web frame before parsing.
+        let payload = response.data;
+        if (payload.length >= 5) {
+            const view = new DataView(
+                payload.buffer,
+                payload.byteOffset,
+                payload.byteLength
             );
-
-
-        console.log(
-            '[Sparx] Modern package strings:',
-            strings.length
-        );
-
-
-        /*
-         * Debug the actual printable data returned by Sparx.
-         */
-
-        console.log(
-            '[Sparx] Modern package strings sample:',
-            JSON.stringify(
-                strings.slice(
-                    0,
-                    100
-                )
-            )
-        );
-
-
-        const packages = [];
-
-        let currentPackage = null;
-
-
-        for (
-            const value of strings
-        ) {
-
-            const packageMatch =
-                value.match(
-                    /(?:^|[^a-zA-Z0-9])packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
+            const messageLength = view.getUint32(1);
+            if (
+                payload[0] === 0 &&
+                messageLength <= payload.length - 5
+            ) {
+                payload = payload.slice(
+                    5,
+                    5 + messageLength
                 );
-
-
-            if (
-                packageMatch
-            ) {
-
-                if (
-                    currentPackage
-                ) {
-
-                    packages.push(
-                        currentPackage
-                    );
-                }
-
-
-                currentPackage = {
-
-                    packageID:
-                        packageMatch[1],
-
-                    title:
-                        'Homework',
-
-                    numTaskItems:
-                        0,
-
-                    numTaskItemsDone:
-                        0,
-
-                    numTasks:
-                        0,
-
-                    numTasksComplete:
-                        0
-
-                };
-
-
-                continue;
-            }
-
-
-            /*
-             * Capture homework titles.
-             */
-
-            if (
-                currentPackage &&
-                (
-                    /^#?Homework\b/i.test(
-                        value
-                    ) ||
-                    /\bHomework\b/i.test(
-                        value
-                    )
-                )
-            ) {
-
-                const cleaned =
-                    value
-                        .replace(
-                            /^#/,
-                            ''
-                        )
-                        .trim();
-
-
-                if (
-                    cleaned.length > 0 &&
-                    cleaned.length < 250
-                ) {
-
-                    currentPackage.title =
-                        cleaned;
-                }
             }
         }
-
-
-        if (
-            currentPackage
-        ) {
-
-            packages.push(
-                currentPackage
-            );
-        }
-
-
-        /*
-         * Remove duplicate package IDs.
-         */
-
-        const uniquePackages = [];
-
-        const seen =
-            new Set();
-
-
-        for (
-            const pkg of packages
-        ) {
-
-            if (
-                !pkg.packageID ||
-                seen.has(
-                    pkg.packageID
-                )
-            ) {
-
-                continue;
-            }
-
-
-            seen.add(
-                pkg.packageID
-            );
-
-
-            uniquePackages.push(
-                pkg
-            );
-        }
-
 
         console.log(
-            '[Sparx] Modern packages found:',
-            uniquePackages.length
+            '[Sparx] payload bytes after gRPC frame:',
+            payload.length
         );
 
+        const debugThisRun = true;
+
+        let parsedPackages = [];
+
+        try {
+            const parsed =
+                parseListStudentPackagesResponse(
+                    payload,
+                    debugThisRun
+                );
+            parsedPackages = parsed.packages;
+        } catch (err) {
+            console.error(
+                '[Sparx] protobuf decode failed:',
+                err.message
+            );
+        }
 
         console.log(
+            '[Sparx] Decoded packages:',
+            parsedPackages.length
+        );
+
+        console.log(
+            '[Sparx] Decoded sample:',
             JSON.stringify(
-                uniquePackages.slice(
-                    0,
-                    10
-                ),
+                parsedPackages.slice(0, 5),
                 null,
                 2
             )
         );
 
+        // Also keep the old string-scraper output for cross-check.
+        const strings =
+            this.extractPrintableStringsFromBytes(
+                payload
+            );
+
+        console.log(
+            '[Sparx] Modern package strings count:',
+            strings.length
+        );
 
         return {
-
-            packages:
-                uniquePackages,
-
+            packages: parsedPackages,
             tasks: [],
-
             taskItems: []
-
         };
     }
-
-
-    /*
-     * ============================================================
-     * OLD TASK METHODS
-     * ============================================================
-     */
 
     async getTasksItems(
         packageID,
@@ -835,20 +872,17 @@ class SparxMaths extends SparxBase {
                 0
         };
 
-
         const fullMessage =
             await this.encodeStuff(
                 inputObject,
                 'PackageDataRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -857,17 +891,14 @@ class SparxMaths extends SparxBase {
             return [];
         }
 
-
         const result =
             await this.decodeStuff(
                 response.data,
                 'PackageDataResponse'
             );
 
-
         return result?.taskItems || [];
     }
-
 
     async getTasks(
         packageID
@@ -896,20 +927,17 @@ class SparxMaths extends SparxBase {
                 0
         };
 
-
         const fullMessage =
             await this.encodeStuff(
                 inputObject,
                 'PackageDataRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -922,19 +950,11 @@ class SparxMaths extends SparxBase {
             };
         }
 
-
         return await this.decodeStuff(
             response.data,
             'PackageDataResponse'
         );
     }
-
-
-    /*
-     * ============================================================
-     * ACTIVITY
-     * ============================================================
-     */
 
     async getActivity(
         timestamp,
@@ -968,20 +988,17 @@ class SparxMaths extends SparxBase {
             timestamp
         };
 
-
         const fullMessage =
             await this.encodeStuff(
                 inputObject,
                 'GetActivityRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetActivity',
                 fullMessage
             );
-
 
         if (
             !response ||
@@ -992,19 +1009,11 @@ class SparxMaths extends SparxBase {
             return response;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'Activity'
         );
     }
-
-
-    /*
-     * ============================================================
-     * INDEPENDENT LEARNING
-     * ============================================================
-     */
 
     async searchIndependantLearning(
         inputObject
@@ -1016,13 +1025,11 @@ class SparxMaths extends SparxBase {
                 'Query'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.content.search.v1.Search/Search',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -1031,13 +1038,11 @@ class SparxMaths extends SparxBase {
             return null;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'Result'
         );
     }
-
 
     async getPackagesIndependantLearning(
         inputObject
@@ -1049,13 +1054,11 @@ class SparxMaths extends SparxBase {
                 'GetPackagesForObjectivesRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetPackagesForObjectives',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -1064,13 +1067,11 @@ class SparxMaths extends SparxBase {
             return null;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'GetPackagesForObjectivesResponse'
         );
     }
-
 
     async getActivePackages(
         inputObject
@@ -1082,13 +1083,11 @@ class SparxMaths extends SparxBase {
                 'GetActivePackagesRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetActivePackages',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -1097,19 +1096,11 @@ class SparxMaths extends SparxBase {
             return null;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'GetActivePackagesResponse'
         );
     }
-
-
-    /*
-     * ============================================================
-     * CONTENT SUMMARIES
-     * ============================================================
-     */
 
     async listTopicSummariesRequest(
         inputObject
@@ -1121,13 +1112,11 @@ class SparxMaths extends SparxBase {
                 'ListTopicSummariesRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.content.summaries.v1.TopicSummaries/ListTopicSummaries',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -1136,13 +1125,11 @@ class SparxMaths extends SparxBase {
             return null;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'ListTopicSummariesResponse'
         );
     }
-
 
     async listCurriculumSummaries(
         inputObject
@@ -1154,13 +1141,11 @@ class SparxMaths extends SparxBase {
                 'ListCurriculumSummariesRequest'
             );
 
-
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.content.summaries.v1.CurriculumSummaries/ListCurriculumSummaries',
                 fullMessage
             );
-
 
         if (
             !response?.data
@@ -1169,14 +1154,12 @@ class SparxMaths extends SparxBase {
             return null;
         }
 
-
         return await this.decodeStuff(
             response.data,
             'PackageDataResponse'
         );
     }
 }
-
 
 module.exports = {
     SparxMaths
