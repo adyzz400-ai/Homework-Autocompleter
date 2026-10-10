@@ -1,22 +1,31 @@
 /*
  * One-shot schema extractor (curl_cffi edition).
  *
- * Uses the bot's own requesticator to fetch the sparx maths
- * bundle. Runs when EXTRACT_SCHEMA=1 and, if cookies are
- * available, when the first sparx maths session starts.
+ * Fetches the sparx maths web bundle through the bot's own
+ * authenticated session, then probes the JS for protobuf
+ * schema definitions. Modern Rolldown / Vite builds do not
+ * use `super("...")`, so we run wider probes instead.
  *
- * Delete this file (and its require in index.js) when done.
+ * Delete this file (and its hook in sparx/maths.js) when done.
  */
 
 const curlRequesticator =
     require('./utils/curlRequesticator');
 
+/*
+ * Targets we look for, in the priority order we want them
+ * printed. The exact class name in the build may differ
+ * (PackageCompletion, Package, PackageSummary, ...) — the
+ * extractor prints excerpts around every occurrence so we can
+ * see which one actually has the field definitions.
+ */
 const TARGETS = [
-    'PackageCompletion',
+    'sparx.packageactivity.v1.PackageCompletion',
+    'sparx.packages.v1.PackageCompletion',
+    'sparx.packageactivity.v1.Package',
     'sparx.packages.v1.Package',
+    'PackageCompletion',
     'sparxweb.Package',
-    'sparx.packages.v1.Task',
-    'sparx.packages.v1.TaskItem',
     'google.protobuf.Timestamp'
 ];
 
@@ -70,6 +79,90 @@ function extractFromHtml(html) {
     return Array.from(urls);
 }
 
+function probeMarkers(src, url) {
+    const markers = [
+        'MessageType',
+        'fieldNo',
+        'wireType',
+        'toBinary',
+        'fromBinary',
+        'PackageCompletion',
+        'packageactivity',
+        'ListStudentPackages',
+        'numTaskItems',
+        'numTaskItemsDone',
+        'numTasks',
+        'numTasksComplete'
+    ];
+    const summary = [];
+    for (const marker of markers) {
+        const n =
+            (src.match(new RegExp(marker, 'g')) || []).length;
+        if (n > 0) summary.push(`${marker} x${n}`);
+    }
+    if (summary.length) {
+        console.log(
+            `[ExtractSchema] markers in ${url}: ${summary.join(', ')}`
+        );
+    }
+}
+
+function probeExcerpts(src, url, found) {
+
+    for (const target of TARGETS) {
+
+        let idx = 0;
+        let printed = 0;
+
+        while (true) {
+            const at = src.indexOf(target, idx);
+            if (at === -1) break;
+            idx = at + target.length;
+
+            // Slice a generous window around the hit so we catch
+            // either a super(...) call, a new MessageType(...)
+            // call, or a class body that references the name.
+            const before = Math.max(0, at - 400);
+            const after = Math.min(
+                src.length,
+                at + target.length + 1400
+            );
+            const excerpt = src.slice(before, after);
+
+            const key =
+                `${url}::${target}::${at}`;
+            if (found.has(key)) continue;
+            found.add(key);
+
+            console.log(
+                `[ExtractSchema] === ${target} @ ${at} in ${url} ===`
+            );
+            console.log(excerpt);
+
+            printed++;
+            if (printed >= 3) break;
+            if (found.size > 120) return;
+        }
+    }
+}
+
+function probeSuperCalls(src, url, found) {
+    // Legacy pattern: super("name", [ {no:...}, ... ]).
+    for (const target of TARGETS) {
+        const hits = extractSuperCalls(src, target);
+        for (const hit of hits) {
+            const key = `${url}::super::${target}::${hit.length}`;
+            if (found.has(key)) continue;
+            found.add(key);
+            console.log(
+                `[ExtractSchema] === super() hit: ${target} ===`
+            );
+            console.log(hit);
+            if (found.size > 120) return;
+        }
+    }
+}
+
 async function extract(cookies) {
 
     if (done) return;
@@ -82,7 +175,7 @@ async function extract(cookies) {
 
     if (!cookies) {
         console.log(
-            '[ExtractSchema] no cookies; skipping. call after sparx login.'
+            '[ExtractSchema] no cookies; skipping.'
         );
         return;
     }
@@ -125,6 +218,7 @@ async function extract(cookies) {
     const found = new Set();
 
     for (const url of urls) {
+
         let src;
         try {
             const res = await rc._executeCurl(
@@ -146,17 +240,21 @@ async function extract(cookies) {
             continue;
         }
 
-        for (const target of TARGETS) {
-            const hits = extractSuperCalls(src, target);
-            for (const hit of hits) {
-                const key = `${target}::${hit.length}`;
-                if (found.has(key)) continue;
-                found.add(key);
-                console.log(
-                    `[ExtractSchema] === ${target} ===`
-                );
-                console.log(hit);
-            }
+        // Sanity: what protobuf-ish markers exist in this file?
+        probeMarkers(src, url);
+
+        // Legacy super(...) form.
+        probeSuperCalls(src, url, found);
+
+        // Modern MessageType / class-body form: print excerpts
+        // around every occurrence of the target names.
+        probeExcerpts(src, url, found);
+
+        if (found.size > 120) {
+            console.log(
+                '[ExtractSchema] cap reached, stopping early'
+            );
+            break;
         }
     }
 
