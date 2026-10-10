@@ -331,6 +331,202 @@ class SparxMaths extends SparxBase {
         return this.sessionId;
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  Pure-JS protobuf raw walker (no schema required)                  */
+    /* ------------------------------------------------------------------ */
+
+    readVarint(buf, offset) {
+        let result = 0n;
+        let shift = 0n;
+        let pos = offset;
+        while (pos < buf.length) {
+            const byte = buf[pos++];
+            result |= BigInt(byte & 0x7f) << shift;
+            if ((byte & 0x80) === 0) break;
+            shift += 7n;
+            if (shift > 70n) throw new Error('varint too long');
+        }
+        return { value: result, next: pos };
+    }
+
+    /**
+     * Walk a protobuf message and return every field as
+     * { fieldNumber, wireType, value }.
+     * Nested length-delimited messages are recursed one level.
+     */
+    walkProtobuf(buf, depth = 0, maxDepth = 4) {
+        const fields = [];
+        let pos = 0;
+        const end = buf.length;
+
+        while (pos < end) {
+            try {
+                const tagRes = this.readVarint(buf, pos);
+                pos = tagRes.next;
+                const tag = Number(tagRes.value);
+                const fieldNumber = tag >>> 3;
+                const wireType = tag & 0x7;
+
+                if (wireType === 0) { // varint
+                    const v = this.readVarint(buf, pos);
+                    pos = v.next;
+                    fields.push({
+                        fieldNumber,
+                        wireType: 0,
+                        value: Number(v.value),
+                        big: v.value
+                    });
+                } else if (wireType === 1) { // 64-bit
+                    if (pos + 8 > end) break;
+                    const slice = buf.subarray(pos, pos + 8);
+                    pos += 8;
+                    fields.push({
+                        fieldNumber,
+                        wireType: 1,
+                        value: Buffer.from(slice).toString('hex')
+                    });
+                } else if (wireType === 2) { // length-delimited
+                    const lenRes = this.readVarint(buf, pos);
+                    pos = lenRes.next;
+                    const len = Number(lenRes.value);
+                    if (len < 0 || pos + len > end) break;
+                    const slice = buf.subarray(pos, pos + len);
+                    pos += len;
+
+                    // try UTF-8 string first
+                    let asString = null;
+                    try {
+                        const s = Buffer.from(slice).toString('utf8');
+                        if (
+                            s.length > 0 &&
+                            !/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(s)
+                        ) {
+                            asString = s;
+                        }
+                    } catch (_) {}
+
+                    const entry = {
+                        fieldNumber,
+                        wireType: 2,
+                        length: len,
+                        string: asString,
+                        bytes: null,
+                        nested: null
+                    };
+
+                    // recurse if it looks like a message and depth allows
+                    if (
+                        !asString &&
+                        depth < maxDepth &&
+                        len > 2
+                    ) {
+                        try {
+                            entry.nested = this.walkProtobuf(
+                                slice,
+                                depth + 1,
+                                maxDepth
+                            );
+                        } catch (_) {}
+                    }
+
+                    if (!asString && !entry.nested) {
+                        entry.bytes = Buffer.from(slice).toString('base64');
+                    }
+
+                    fields.push(entry);
+                } else if (wireType === 5) { // 32-bit
+                    if (pos + 4 > end) break;
+                    const slice = buf.subarray(pos, pos + 4);
+                    pos += 4;
+                    fields.push({
+                        fieldNumber,
+                        wireType: 5,
+                        value: Buffer.from(slice).toString('hex')
+                    });
+                } else {
+                    // unknown / group — abort this message
+                    break;
+                }
+            } catch (_) {
+                break;
+            }
+        }
+        return fields;
+    }
+
+    /**
+     * Turn the raw walk into the package objects the rest of the
+     * bot already understands.
+     * Until we have exact field numbers this is best-effort:
+     * it pulls every UUID that looks like a package id and any
+     * nearby title / due-date strings.
+     */
+    packagesFromRawWalk(fields) {
+        const packages = [];
+        let current = null;
+
+        const uuidRe =
+            /packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+        const dueRe =
+            /^#?\s*(.+?)\s+due\s+(.+)$/i;
+
+        const visit = (list) => {
+            for (const f of list) {
+                if (f.string) {
+                    const uuidMatch = f.string.match(uuidRe);
+                    if (uuidMatch) {
+                        if (current) packages.push(current);
+                        current = {
+                            packageID: uuidMatch[1],
+                            title: 'Homework',
+                            dueText: null,
+                            dueDate: null,
+                            numTaskItems: 0,
+                            numTaskItemsDone: 0,
+                            numTasks: 0,
+                            numTasksComplete: 0,
+                            _rawFields: []
+                        };
+                        continue;
+                    }
+
+                    if (current) {
+                        const dueMatch = f.string.match(dueRe);
+                        if (dueMatch && !current.dueText) {
+                            current.title =
+                                dueMatch[1]
+                                    .replace(/^[^A-Za-z0-9]+/, '')
+                                    .trim() || 'Homework';
+                            current.dueText = dueMatch[2].trim();
+                            current.dueDate =
+                                this.parseDueText(current.dueText);
+                        } else if (
+                            /^#?\s*homework\s*$/i.test(f.string) &&
+                            current.title === 'Homework'
+                        ) {
+                            current.title = 'Homework';
+                        }
+                    }
+                }
+
+                // collect every varint near a package so we can
+                // later map field numbers → completion counts
+                if (current && f.wireType === 0) {
+                    current._rawFields.push({
+                        n: f.fieldNumber,
+                        v: f.value
+                    });
+                }
+
+                if (f.nested) visit(f.nested);
+            }
+        };
+
+        visit(fields);
+        if (current) packages.push(current);
+        return packages;
+    }
+
     extractPrintableStringsFromBytes(bytes) {
 
         const strings = [];
@@ -527,6 +723,10 @@ class SparxMaths extends SparxBase {
         }
 
         let payload = response.data;
+        if (Buffer.isBuffer(payload) === false) {
+            payload = Buffer.from(payload);
+        }
+
         if (payload.length >= 5) {
             const view = new DataView(
                 payload.buffer,
@@ -538,7 +738,7 @@ class SparxMaths extends SparxBase {
                 payload[0] === 0 &&
                 messageLength <= payload.length - 5
             ) {
-                payload = payload.slice(
+                payload = payload.subarray(
                     5,
                     5 + messageLength
                 );
@@ -550,79 +750,140 @@ class SparxMaths extends SparxBase {
             payload.length
         );
 
-        const strings =
-            this.extractPrintableStringsFromBytes(
-                payload
+        // ------------------------------------------------------------------
+        // TEMP CAPTURE — remove once we have the field numbers
+        // ------------------------------------------------------------------
+        console.log(
+            '[Sparx][PROTO-DUMP] base64 length',
+            payload.length
+        );
+        console.log(
+            '[Sparx][PROTO-DUMP]',
+            payload.toString('base64')
+        );
+        // ------------------------------------------------------------------
+
+        // Raw protobuf walk (gives us field numbers + values)
+        let rawFields = [];
+        try {
+            rawFields = this.walkProtobuf(payload);
+            console.log(
+                '[Sparx][RAW] top-level fields:',
+                rawFields.length
+            );
+            // log a compact summary of every field number we saw
+            const summary = {};
+            const collect = (list) => {
+                for (const f of list) {
+                    const key = `${f.fieldNumber}:${f.wireType}`;
+                    summary[key] = (summary[key] || 0) + 1;
+                    if (f.nested) collect(f.nested);
+                }
+            };
+            collect(rawFields);
+            console.log(
+                '[Sparx][RAW] field:wire counts',
+                JSON.stringify(summary)
+            );
+        } catch (err) {
+            console.log(
+                '[Sparx][RAW] walk failed:',
+                err.message
+            );
+        }
+
+        // Prefer the structured walk; fall back to old string scraper
+        let packages = this.packagesFromRawWalk(rawFields);
+
+        if (packages.length === 0) {
+            console.log(
+                '[Sparx] raw walk produced 0 packages — falling back to string scrape'
             );
 
-        console.log(
-            '[Sparx] Modern package strings:',
-            strings.length
-        );
+            const strings =
+                this.extractPrintableStringsFromBytes(
+                    payload
+                );
 
-        const packages = [];
-        let currentPackage = null;
+            console.log(
+                '[Sparx] Modern package strings:',
+                strings.length
+            );
 
-        for (const value of strings) {
+            let currentPackage = null;
 
-            const classified =
-                this.classifyString(value);
+            for (const value of strings) {
 
-            if (!classified) continue;
+                const classified =
+                    this.classifyString(value);
 
-            if (classified.kind === 'package') {
+                if (!classified) continue;
 
-                if (currentPackage) {
-                    packages.push(currentPackage);
+                if (classified.kind === 'package') {
+
+                    if (currentPackage) {
+                        packages.push(currentPackage);
+                    }
+
+                    currentPackage = {
+                        packageID: classified.packageID,
+                        title: 'Homework',
+                        dueText: null,
+                        dueDate: null,
+                        numTaskItems: 0,
+                        numTaskItemsDone: 0,
+                        numTasks: 0,
+                        numTasksComplete: 0
+                    };
+
+                    continue;
                 }
 
-                currentPackage = {
-                    packageID: classified.packageID,
-                    title: 'Homework',
-                    dueText: null,
-                    dueDate: null,
-                    numTaskItems: 0,
-                    numTaskItemsDone: 0,
-                    numTasks: 0,
-                    numTasksComplete: 0
-                };
+                if (!currentPackage) continue;
 
-                continue;
+                if (classified.kind === 'titleDue') {
+
+                    if (!currentPackage.dueText) {
+                        currentPackage.title =
+                            classified.title;
+                        currentPackage.dueText =
+                            classified.dueText;
+                        currentPackage.dueDate =
+                            this.parseDueText(
+                                classified.dueText
+                            );
+                    }
+                    continue;
+                }
+
+                if (classified.kind === 'titleOnly') {
+
+                    if (
+                        currentPackage.title ===
+                            'Homework' &&
+                        !currentPackage.dueText
+                    ) {
+                        currentPackage.title =
+                            classified.title;
+                    }
+                    continue;
+                }
             }
 
-            if (!currentPackage) continue;
-
-            if (classified.kind === 'titleDue') {
-
-                if (!currentPackage.dueText) {
-                    currentPackage.title =
-                        classified.title;
-                    currentPackage.dueText =
-                        classified.dueText;
-                    currentPackage.dueDate =
-                        this.parseDueText(
-                            classified.dueText
-                        );
-                }
-                continue;
-            }
-
-            if (classified.kind === 'titleOnly') {
-
-                if (
-                    currentPackage.title ===
-                        'Homework' &&
-                    !currentPackage.dueText
-                ) {
-                    currentPackage.title =
-                        classified.title;
-                }
-                continue;
+            if (currentPackage) {
+                packages.push(currentPackage);
             }
         }
 
-        if (currentPackage) {
-            packages.push(currentPackage);
+        // Log the first few packages' raw varints so we can map
+        // field numbers → numTaskItems / numTasksComplete etc.
+        for (const pkg of packages.slice(0, 5)) {
+            if (pkg._rawFields && pkg._rawFields.length) {
+                console.log(
+                    `[Sparx][RAW] package ${pkg.packageID} varints:`,
+                    JSON.stringify(pkg._rawFields)
+                );
+            }
         }
 
         const uniquePackages = [];
@@ -632,6 +893,8 @@ class SparxMaths extends SparxBase {
             if (!pkg.packageID) continue;
             if (seen.has(pkg.packageID)) continue;
             seen.add(pkg.packageID);
+            // strip internal debug field before returning
+            delete pkg._rawFields;
             uniquePackages.push(pkg);
         }
 
@@ -904,37 +1167,38 @@ class SparxMaths extends SparxBase {
         );
     }
 
-    async getActivity(
-        timestamp,
-        packageID,
-        taskIndex,
-        taskItemIndex,
-        activityType = 0
+    async getPackageData(
+        inputObject
     ) {
 
-        const inputObject = {
+        const fullMessage =
+            await this.encodeStuff(
+                inputObject,
+                'PackageDataRequest'
+            );
 
-            activityType,
+        const response =
+            await this.send(
+                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
+                fullMessage
+            );
 
-            payload: {},
+        if (
+            !response?.data
+        ) {
 
-            method: 0,
+            return null;
+        }
 
-            clientFeatureFlags: {},
+        return await this.decodeStuff(
+            response.data,
+            'PackageDataResponse'
+        );
+    }
 
-            taskItem: {
-
-                packageID,
-
-                taskIndex,
-
-                taskItemIndex,
-
-                taskState: 0
-            },
-
-            timestamp
-        };
+    async getActivity(
+        inputObject
+    ) {
 
         const fullMessage =
             await this.encodeStuff(
@@ -945,37 +1209,6 @@ class SparxMaths extends SparxBase {
         const response =
             await this.send(
                 'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetActivity',
-                fullMessage
-            );
-
-        if (
-            !response ||
-            response === 'break' ||
-            !response.data
-        ) {
-
-            return response;
-        }
-
-        return await this.decodeStuff(
-            response.data,
-            'Activity'
-        );
-    }
-
-    async searchIndependantLearning(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'Query'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.content.search.v1.Search/Search',
                 fullMessage
             );
 
@@ -1104,11 +1337,9 @@ class SparxMaths extends SparxBase {
 
         return await this.decodeStuff(
             response.data,
-            'PackageDataResponse'
+            'ListCurriculumSummariesResponse'
         );
     }
 }
 
-module.exports = {
-    SparxMaths
-};
+module.exports = SparxMaths;
