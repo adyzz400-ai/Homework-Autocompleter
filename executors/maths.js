@@ -31,66 +31,51 @@ const {
     checkAccount
 } = require('../database/accounts.js');
 
-/*
- * ============================================================
- * Dropdown formatting helpers
- * ============================================================
- */
-
-function formatDue(endDate) {
-    if (!endDate || !endDate.seconds) {
-        return 'no due date';
-    }
-    const when = new Date(
-        endDate.seconds * 1000
-    );
-    if (Number.isNaN(when.getTime())) {
-        return 'no due date';
-    }
-    return `due ${when.toLocaleDateString('en-GB', {
-        day: 'numeric',
-        month: 'short'
-    })}`;
+function formatDue(pkg) {
+    const text =
+        (pkg && pkg.dueText) ||
+        '';
+    if (!text) return 'no due date';
+    return `due ${text}`;
 }
 
-function homeworkLabel(homework) {
-    const raw = (homework.title || '').trim();
+function homeworkLabel(pkg) {
+    const raw = (pkg.title || '').trim();
     if (raw && !/^homework$/i.test(raw)) {
         return raw.slice(0, 100);
     }
     return `Homework (${String(
-        homework.packageID || ''
+        pkg.packageID || ''
     ).slice(0, 6)})`;
 }
 
-function buildOption(homework, useTaskCounts) {
+function buildOption(pkg, useTaskCounts) {
     const total =
         Number(
             useTaskCounts
-                ? homework.numTaskItems
-                : homework.numTasks
+                ? pkg.numTaskItems
+                : pkg.numTasks
         ) || 1;
 
     const completed =
         Number(
             useTaskCounts
-                ? homework.numTaskItemsDone
-                : homework.numTasksComplete
+                ? pkg.numTaskItemsDone
+                : pkg.numTasksComplete
         ) || 0;
 
-    const percentage =
-        Math.round(
-            completed / total * 100
-        );
+    const percentage = Math.round(
+        completed / total * 100
+    );
 
-    const due = formatDue(homework.endDate);
+    const due = formatDue(pkg);
 
     return new StringSelectMenuOptionBuilder()
-        .setLabel(homeworkLabel(homework))
+        .setLabel(homeworkLabel(pkg))
         .setDescription(
             `${percentage}% \u2022 ${due}`.slice(0, 100)
         )
-        .setValue(homework.packageID);
+        .setValue(pkg.packageID);
 }
 
 async function mathsExecuter(
@@ -124,60 +109,10 @@ async function mathsExecuter(
         homeworks
     );
 
-    const sortByEndDateDesc =
-    (a, b) => {
-        const aSeconds =
-            Number(a?.endDate?.seconds) || 0;
-        const bSeconds =
-            Number(b?.endDate?.seconds) || 0;
-        return bSeconds - aSeconds;
-    };
-
-    const onlyHomeworks =
-        homeworks.packages
-            .filter(pkg =>
-                /^homework/i.test(
-                    (pkg.title || '') ||
-                    'Homework'
-                ) &&
-                !/^xp boost/i.test(
-                    pkg.title || ''
-                ) &&
-                !/^targets/i.test(
-                    pkg.title || ''
-                )
-            )
-            .sort(
-                sortByEndDateDesc
-            );
-
-    const onlyXpBoosts =
-        homeworks.packages
-            .filter(pkg =>
-                /^xp boost/i.test(
-                    pkg.title || ''
-                )
-            )
-            .sort(
-                sortByEndDateDesc
-            );
-
-    const onlyTargets =
-        homeworks.packages
-            .filter(pkg =>
-                /^targets/i.test(
-                    pkg.title || ''
-                )
-            )
-            .sort(
-                sortByEndDateDesc
-            );
-
-    const orderedList = [
-        ...onlyHomeworks,
-        ...onlyXpBoosts,
-        ...onlyTargets
-    ];
+    // getHomeworks() now returns packages already sorted by
+    // ascending due date (soonest first), capped to 25.
+    const orderedList =
+        homeworks.packages.slice();
 
     const select =
         new StringSelectMenuBuilder()
