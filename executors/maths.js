@@ -31,6 +31,67 @@ const {
     checkAccount
 } = require('../database/accounts.js');
 
+/*
+ * ============================================================
+ * Dropdown formatting helpers
+ * ============================================================
+ */
+
+function formatDue(endDate) {
+    if (!endDate || !endDate.seconds) {
+        return 'no due date';
+    }
+    const when = new Date(
+        endDate.seconds * 1000
+    );
+    if (Number.isNaN(when.getTime())) {
+        return 'no due date';
+    }
+    return `due ${when.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short'
+    })}`;
+}
+
+function homeworkLabel(homework) {
+    const raw = (homework.title || '').trim();
+    if (raw && !/^homework$/i.test(raw)) {
+        return raw.slice(0, 100);
+    }
+    return `Homework (${String(
+        homework.packageID || ''
+    ).slice(0, 6)})`;
+}
+
+function buildOption(homework, useTaskCounts) {
+    const total =
+        Number(
+            useTaskCounts
+                ? homework.numTaskItems
+                : homework.numTasks
+        ) || 1;
+
+    const completed =
+        Number(
+            useTaskCounts
+                ? homework.numTaskItemsDone
+                : homework.numTasksComplete
+        ) || 0;
+
+    const percentage =
+        Math.round(
+            completed / total * 100
+        );
+
+    const due = formatDue(homework.endDate);
+
+    return new StringSelectMenuOptionBuilder()
+        .setLabel(homeworkLabel(homework))
+        .setDescription(
+            `${percentage}% \u2022 ${due}`.slice(0, 100)
+        )
+        .setValue(homework.packageID);
+}
 
 async function mathsExecuter(
     interaction,
@@ -63,61 +124,60 @@ async function mathsExecuter(
         homeworks
     );
 
-
     const sortByEndDateDesc =
     (a, b) => {
         const aSeconds =
             Number(a?.endDate?.seconds) || 0;
-
         const bSeconds =
             Number(b?.endDate?.seconds) || 0;
-
         return bSeconds - aSeconds;
     };
-
 
     const onlyHomeworks =
         homeworks.packages
             .filter(pkg =>
-                pkg.title.startsWith(
+                /^homework/i.test(
+                    (pkg.title || '') ||
                     'Homework'
+                ) &&
+                !/^xp boost/i.test(
+                    pkg.title || ''
+                ) &&
+                !/^targets/i.test(
+                    pkg.title || ''
                 )
             )
             .sort(
                 sortByEndDateDesc
             );
-
 
     const onlyXpBoosts =
         homeworks.packages
             .filter(pkg =>
-                pkg.title.startsWith(
-                    'XP Boost'
+                /^xp boost/i.test(
+                    pkg.title || ''
                 )
             )
             .sort(
                 sortByEndDateDesc
             );
-
 
     const onlyTargets =
         homeworks.packages
             .filter(pkg =>
-                pkg.title.startsWith(
-                    'Targets'
+                /^targets/i.test(
+                    pkg.title || ''
                 )
             )
             .sort(
                 sortByEndDateDesc
             );
-
 
     const orderedList = [
         ...onlyHomeworks,
         ...onlyXpBoosts,
         ...onlyTargets
     ];
-
 
     const select =
         new StringSelectMenuBuilder()
@@ -129,42 +189,11 @@ async function mathsExecuter(
             )
             .setMinValues(0);
 
-
-    for (
-        const homework of orderedList
-    ) {
-
-        const total =
-            Number(
-                homework.numTaskItems
-            ) || 1;
-
-        const completed =
-            Number(
-                homework.numTaskItemsDone
-            ) || 0;
-
-        const percentage =
-            Math.round(
-                completed /
-                total *
-                100
-            );
-
+    for (const homework of orderedList) {
         select.addOptions(
-            new StringSelectMenuOptionBuilder()
-                .setLabel(
-                    homework.title
-                )
-                .setDescription(
-                    `${percentage}%`
-                )
-                .setValue(
-                    homework.packageID
-                )
+            buildOption(homework, true)
         );
     }
-
 
     let userDisplayName;
     let userInfo;
@@ -190,21 +219,11 @@ async function mathsExecuter(
         };
     }
 
-
     const givenName =
         userInfo &&
         userInfo.givenName
             ? userInfo.givenName
             : 'User';
-
-
-    /*
-     * Sparx Maths no longer requires
-     * a legacy SparxNow /account entry.
-     *
-     * These are the same defaults used by
-     * the normal Maths session.
-     */
 
     const mathsSettings =
         existingAccount?.sparx_maths_settings ||
@@ -225,7 +244,6 @@ async function mathsExecuter(
         {
             question:
                 false,
-
             working_out:
                 false
         };
@@ -233,7 +251,6 @@ async function mathsExecuter(
     const model =
         mathsSettings.model ||
         '3.5-flash-lite';
-
 
     UserSession.loadFromObject({
         min,
@@ -260,9 +277,7 @@ async function mathsExecuter(
         model
     });
 
-
     await UserSession.updateEmbed();
-
 
     const collector =
         UserSession.message_sent
@@ -270,7 +285,6 @@ async function mathsExecuter(
                 time:
                     180_000
             });
-
 
     collector.on(
         'collect',
@@ -286,7 +300,6 @@ async function mathsExecuter(
                 await componentInteraction
                     .deferUpdate();
 
-
                 const disabledSelect =
                     new StringSelectMenuBuilder()
                         .setCustomId(
@@ -297,66 +310,31 @@ async function mathsExecuter(
                         )
                         .setMinValues(0);
 
-
                 for (
                     const homework
                     of homeworks.packages
                 ) {
 
-                    const total =
-                        Number(
-                            homework.numTasks
-                        ) || 1;
-
-                    const completed =
-                        Number(
-                            homework.numTasksComplete
-                        ) || 0;
-
-                    const percentage =
-                        Math.round(
-                            completed /
-                            total *
-                            100
-                        );
-
-
                     const option =
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel(
-                                homework.title
-                            )
-                            .setDescription(
-                                `${percentage}%`
-                            )
-                            .setValue(
-                                homework.packageID
-                            );
-
+                        buildOption(homework, false);
 
                     if (
                         homework.packageID ===
                         componentInteraction.values[0]
                     ) {
-
-                        option.setDefault(
-                            true
-                        );
+                        option.setDefault(true);
                     }
-
 
                     disabledSelect.addOptions(
                         option
                     );
                 }
 
-
                 UserSession.selectRow =
                     disabledSelect;
 
                 UserSession.selectedHomework =
                     componentInteraction.values[0];
-
 
                 await UserSession.updateEmbed(
                     false
@@ -376,18 +354,10 @@ async function mathsExecuter(
                     await componentInteraction
                         .deferUpdate();
 
-
                     await UserSession
                         .updateEmbed(
                             true
                         );
-
-
-                    /*
-                     * useUpSlot() already safely
-                     * returns false when there is
-                     * no legacy account.
-                     */
 
                     if (
                         await useUpSlot(
@@ -399,10 +369,8 @@ async function mathsExecuter(
                             'sparx'
                         )
                     ) {
-
                         return;
                     }
-
 
                     if (
                         Object.keys(
@@ -415,7 +383,6 @@ async function mathsExecuter(
                             sparxMaths
                         );
                     }
-
 
                     await queue.addQueue({
                         action:
@@ -436,7 +403,6 @@ async function mathsExecuter(
                         interaction
                     });
 
-
                     await interaction.followUp({
                         flags:
                             64,
@@ -445,7 +411,6 @@ async function mathsExecuter(
                             'You have been added to the queue'
                     });
                 }
-
 
                 else if (
                     componentInteraction.customId ===
@@ -461,7 +426,6 @@ async function mathsExecuter(
                                 'Independant Learning Code'
                             );
 
-
                     const curriculums =
                         await sparxMaths
                             .listCurriculumSummaries({
@@ -472,7 +436,6 @@ async function mathsExecuter(
                                     ''
                             });
 
-
                     const curriculumInput =
                         new StringSelectMenuBuilder()
                             .setCustomId(
@@ -481,7 +444,6 @@ async function mathsExecuter(
                             .setPlaceholder(
                                 'Curriculum'
                             );
-
 
                     for (
                         const cur
@@ -499,7 +461,6 @@ async function mathsExecuter(
                                     .name
                         });
                     }
-
 
                     const levelInput =
                         new StringSelectMenuBuilder()
@@ -542,7 +503,6 @@ async function mathsExecuter(
                                 }
                             );
 
-
                     const curriculumLabel =
                         new LabelBuilder({
                             label:
@@ -552,7 +512,6 @@ async function mathsExecuter(
                                 curriculumInput
                         });
 
-
                     const levelLabel =
                         new LabelBuilder({
                             label:
@@ -561,7 +520,6 @@ async function mathsExecuter(
                             component:
                                 levelInput
                         });
-
 
                     const cookieInput =
                         new TextInputBuilder()
@@ -574,7 +532,6 @@ async function mathsExecuter(
                             .setStyle(
                                 TextInputStyle.Short
                             );
-
 
                     modal.addLabelComponents(
                         curriculumLabel
@@ -591,25 +548,16 @@ async function mathsExecuter(
                         levelLabel
                     );
 
-
                     await componentInteraction
                         .showModal(
                             modal
                         );
                 }
 
-
                 else if (
                     componentInteraction.customId ===
                     'save_account'
                 ) {
-
-                    /*
-                     * Saving an account still belongs
-                     * to the legacy account system.
-                     * Keep it available only when an
-                     * account actually exists.
-                     */
 
                     if (!existingAccount) {
 
@@ -625,7 +573,6 @@ async function mathsExecuter(
                         return;
                     }
 
-
                     const modal =
                         new ModalBuilder()
                             .setCustomId(
@@ -634,7 +581,6 @@ async function mathsExecuter(
                             .setTitle(
                                 'Save Account'
                             );
-
 
                     const input =
                         new TextInputBuilder()
@@ -651,7 +597,6 @@ async function mathsExecuter(
                                 true
                             );
 
-
                     modal.addComponents(
                         new ActionRowBuilder()
                             .addComponents(
@@ -659,13 +604,11 @@ async function mathsExecuter(
                             )
                     );
 
-
                     await componentInteraction
                         .showModal(
                             modal
                         );
                 }
-
 
                 else if (
                     componentInteraction.customId ===
@@ -680,16 +623,10 @@ async function mathsExecuter(
                     );
                 }
 
-
                 else if (
                     componentInteraction.customId ===
                     'settings'
                 ) {
-
-                    /*
-                     * Settings use the old account
-                     * settings database.
-                     */
 
                     if (!existingAccount) {
 
@@ -705,20 +642,17 @@ async function mathsExecuter(
                         return;
                     }
 
-
                     await componentInteraction
                         .deferReply({
                             flags:
                                 64
                         });
 
-
                     const account =
                         await checkAccount(
                             componentInteraction
                                 .user.id
                         );
-
 
                     await handleSetting(
                         componentInteraction,
@@ -728,7 +662,6 @@ async function mathsExecuter(
             }
         }
     );
-
 
     collector.on(
         'end',
@@ -747,7 +680,6 @@ async function mathsExecuter(
         }
     );
 }
-
 
 module.exports =
     mathsExecuter;
