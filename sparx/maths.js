@@ -323,7 +323,18 @@ class SparxMaths extends SparxBase {
         this.curlRequests.headers.push(
             `x-session-id: ${this.sessionId}`
         );
-
+        if (process.env.EXTRACT_SCHEMA === '1') {
+                    try {
+                        const { extract } =
+                            require('../extract-schema.js');
+                        extract(this.cookies).catch(() => {});
+                    } catch (e) {
+                        console.log(
+                            '[ExtractSchema] require failed:',
+                            e.message
+                        );
+                    }
+                }
         console.log(
             '[Sparx ClientSession] Session ID installed.'
         );
