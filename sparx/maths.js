@@ -394,25 +394,6 @@ class SparxMaths extends SparxBase {
         return strings;
     }
 
-    /*
-     * ============================================================
-     * Homework string classification
-     *
-     * The server's response contains a printable-strings channel
-     * that carries everything the sparx web app renders. We use
-     * that channel directly instead of decoding protobuf.
-     *
-     * Recognised shapes:
-     *   "packages/<uuid>"         -> package start marker
-     *   "assignments/<uuid>"      -> ignore
-     *   "curriculums/<uuid>"      -> ignore
-     *   "#Homework due <text>"    -> title + due (title/due split)
-     *   "#<Title> due <text>"     -> title + due (title/due split)
-     *   "Homework" / "homework "  -> title fallback
-     *   everything else           -> ignore
-     * ============================================================
-     */
-
     classifyString(value) {
 
         const trimmed =
@@ -420,7 +401,6 @@ class SparxMaths extends SparxBase {
 
         if (!trimmed) return null;
 
-        // Package start marker
         const pkgMatch =
             trimmed.match(
                 /^[-*]?\s*packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
@@ -433,7 +413,6 @@ class SparxMaths extends SparxBase {
             };
         }
 
-        // Ignore assignments + curriculums
         if (
             /^(?:[-*]\s*)?(?:assignments|curriculums)\//i.test(
                 trimmed
@@ -442,22 +421,29 @@ class SparxMaths extends SparxBase {
             return { kind: 'ignore' };
         }
 
-        // Title + due date (rendered by the web app)
         const dueMatch =
             trimmed.match(
-                /^#?\s*(.+?)\s+due\s+(.+?)\s*$/i
+                /^[^A-Za-z0-9]*#?\s*(.+?)\s+due\s+(.+?)\s*$/i
             );
 
         if (dueMatch) {
+
+            // Strip any leading non-alphanumeric bytes that leaked
+            // out of the protobuf length prefix (e.g. "(Homework",
+            // "%Homework", "&Homework", "'Homework").
+            const title =
+                dueMatch[1]
+                    .replace(/^[^A-Za-z0-9]+/, '')
+                    .trim();
+
             return {
                 kind: 'titleDue',
-                title: dueMatch[1].trim(),
+                title: title || 'Homework',
                 dueText: dueMatch[2].trim()
             };
         }
 
-        // Bare title fallback
-        if (/^#?\s*homework\s*$/i.test(trimmed)) {
+        if (/^[^A-Za-z0-9]*#?\s*homework\s*$/i.test(trimmed)) {
             return {
                 kind: 'titleOnly',
                 title: 'Homework'
@@ -565,13 +551,6 @@ class SparxMaths extends SparxBase {
             strings.length
         );
 
-        /*
-         * Walk the printable-strings list. Every time we see a
-         * "packages/<uuid>" string, start a new package. The next
-         * titleDue or titleOnly string that follows (before the
-         * next package marker) sets the title and due text.
-         */
-
         const packages = [];
         let currentPackage = null;
 
@@ -592,9 +571,7 @@ class SparxMaths extends SparxBase {
                     packageID: classified.packageID,
                     title: 'Homework',
                     dueText: null,
-                    // The counts are not present in the string
-                    // channel; the dropdown shows 0% until we
-                    // have a real protobuf decoder.
+                    dueDate: null,
                     numTaskItems: 0,
                     numTaskItemsDone: 0,
                     numTasks: 0,
@@ -608,20 +585,21 @@ class SparxMaths extends SparxBase {
 
             if (classified.kind === 'titleDue') {
 
-                // Only take the first titleDue line per package.
                 if (!currentPackage.dueText) {
                     currentPackage.title =
                         classified.title;
                     currentPackage.dueText =
                         classified.dueText;
+                    currentPackage.dueDate =
+                        this.parseDueText(
+                            classified.dueText
+                        );
                 }
                 continue;
             }
 
             if (classified.kind === 'titleOnly') {
 
-                // Fallback title, only if nothing better has been
-                // captured yet for this package.
                 if (
                     currentPackage.title ===
                         'Homework' &&
@@ -638,8 +616,6 @@ class SparxMaths extends SparxBase {
             packages.push(currentPackage);
         }
 
-        // Deduplicate by packageID (the response often repeats
-        // each package block across the two requests).
         const uniquePackages = [];
         const seen = new Set();
 
@@ -650,25 +626,154 @@ class SparxMaths extends SparxBase {
             uniquePackages.push(pkg);
         }
 
+        /*
+         * Sort ascending by due date: soonest first. Packages
+         * without a parseable due date fall to the end, sorted by
+         * packageID so their order is stable.
+         */
+        const now = Date.now();
+        const sortedPackages = uniquePackages.sort(
+            (a, b) => {
+                const aT = a.dueDate
+                    ? a.dueDate.getTime()
+                    : Number.POSITIVE_INFINITY;
+                const bT = b.dueDate
+                    ? b.dueDate.getTime()
+                    : Number.POSITIVE_INFINITY;
+                if (aT !== bT) return aT - bT;
+                return String(a.packageID).localeCompare(
+                    String(b.packageID)
+                );
+            }
+        );
+
+        /*
+         * Prefer packages whose due date is in the future. If
+         * nothing qualifies (all expired), keep the full list.
+         * Cap to 25 for Discord's select-menu limit.
+         */
+        const upcoming = sortedPackages.filter(
+            (p) => p.dueDate && p.dueDate.getTime() >= now
+        );
+
+        const trimmed = (
+            upcoming.length > 0
+                ? upcoming
+                : sortedPackages
+        ).slice(0, 25);
+
         console.log(
             '[Sparx] Modern packages found:',
-            uniquePackages.length
+            uniquePackages.length,
+            'upcoming:',
+            upcoming.length,
+            'trimmed:',
+            trimmed.length
         );
 
         console.log(
             '[Sparx] Modern packages sample:',
             JSON.stringify(
-                uniquePackages.slice(0, 10),
+                trimmed.slice(0, 10),
                 null,
                 2
             )
         );
 
         return {
-            packages: uniquePackages,
+            packages: trimmed,
             tasks: [],
             taskItems: []
         };
+    }
+
+    /*
+     * Parse strings of the shape "Thursday 16th July 3pm" into a
+     * Date. Returns null on failure. The weekday prefix is
+     * discarded; only the day/month/time is used.
+     */
+    parseDueText(text) {
+
+        if (!text) return null;
+
+        const cleaned =
+            String(text)
+                .replace(
+                    /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+/i,
+                    ''
+                )
+                .trim();
+
+        const monthMap = {
+            jan: 0, january: 0,
+            feb: 1, february: 1,
+            mar: 2, march: 2,
+            apr: 3, april: 3,
+            may: 4,
+            jun: 5, june: 5,
+            jul: 6, july: 6,
+            aug: 7, august: 7,
+            sep: 8, sept: 8, september: 8,
+            oct: 9, october: 9,
+            nov: 10, november: 10,
+            dec: 11, december: 11
+        };
+
+        const m = cleaned.match(
+            /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s*(.*)?$/i
+        );
+
+        if (!m) return null;
+
+        const day = parseInt(m[1], 10);
+        const monthName =
+            String(m[2] || '').toLowerCase();
+        const month = monthMap[monthName];
+        if (month === undefined) return null;
+
+        let hour = 0;
+        let minute = 0;
+
+        const tail = (m[3] || '').trim();
+        const timeMatch = tail.match(
+            /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i
+        );
+
+        if (timeMatch) {
+            hour = parseInt(timeMatch[1], 10);
+            minute = timeMatch[2]
+                ? parseInt(timeMatch[2], 10)
+                : 0;
+            const ampm = (timeMatch[3] || '').toLowerCase();
+            if (ampm === 'pm' && hour < 12) hour += 12;
+            if (ampm === 'am' && hour === 12) hour = 0;
+        }
+
+        const year = new Date().getFullYear();
+        const d = new Date(
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            0,
+            0
+        );
+
+        /*
+         * If the due date lands before today by more than a few
+         * months, roll forward one year (December packages
+         * rolling into January of the next calendar year).
+         */
+        const sixMonthsMs =
+            180 * 24 * 60 * 60 * 1000;
+        if (d.getTime() + sixMonthsMs < Date.now()) {
+            d.setFullYear(year + 1);
+        }
+
+        return Number.isNaN(d.getTime())
+            ? null
+            : d;
     }
 
     async getTasksItems(
