@@ -25,7 +25,13 @@ function fetchText(url, depth = 0) {
         new Error('too many redirects')
     );
     return new Promise((resolve, reject) => {
-        https.get(url, (res) => {
+        https.get(url, {
+            headers: {
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'accept-language': 'en-GB,en;q=0.9'
+            }
+        }, (res) => {
             if (
                 res.statusCode >= 300 &&
                 res.statusCode < 400 &&
