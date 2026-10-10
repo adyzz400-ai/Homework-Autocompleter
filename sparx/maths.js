@@ -323,18 +323,7 @@ class SparxMaths extends SparxBase {
         this.curlRequests.headers.push(
             `x-session-id: ${this.sessionId}`
         );
-        if (process.env.EXTRACT_SCHEMA === '1') {
-                    try {
-                        const { extract } =
-                            require('../extract-schema.js');
-                        extract(this.cookies).catch(() => {});
-                    } catch (e) {
-                        console.log(
-                            '[ExtractSchema] require failed:',
-                            e.message
-                        );
-                    }
-                }
+
         console.log(
             '[Sparx ClientSession] Session ID installed.'
         );
@@ -439,9 +428,6 @@ class SparxMaths extends SparxBase {
 
         if (dueMatch) {
 
-            // Strip any leading non-alphanumeric bytes that leaked
-            // out of the protobuf length prefix (e.g. "(Homework",
-            // "%Homework", "&Homework", "'Homework").
             const title =
                 dueMatch[1]
                     .replace(/^[^A-Za-z0-9]+/, '')
@@ -508,14 +494,40 @@ class SparxMaths extends SparxBase {
                 request
             );
 
+        /*
+         * ============================================
+         * ListStudentPackages diagnostics
+         * ============================================
+         * Logged every run so the Render log always
+         * shows the shape of the response, even when
+         * nothing else is wrong.
+         */
+
         console.log(
             '[Sparx] ListStudentPackages HTTP:',
             response?.status
         );
 
         console.log(
+            '[Sparx] ListStudentPackages content-type:',
+            response?.headers?.['content-type'] ||
+                response?.headers?.['Content-Type'] ||
+                'unknown'
+        );
+
+        console.log(
             '[Sparx] ListStudentPackages bytes:',
             response?.data?.length || 0
+        );
+
+        console.log(
+            '[Sparx] ListStudentPackages grpc-status:',
+            response?.headers?.['grpc-status'] || 'n/a'
+        );
+
+        console.log(
+            '[Sparx] ListStudentPackages grpc-message:',
+            response?.headers?.['grpc-message'] || 'n/a'
         );
 
         if (
@@ -551,6 +563,11 @@ class SparxMaths extends SparxBase {
                 );
             }
         }
+
+        console.log(
+            '[Sparx] payload bytes after gRPC frame:',
+            payload.length
+        );
 
         const strings =
             this.extractPrintableStringsFromBytes(
@@ -637,12 +654,6 @@ class SparxMaths extends SparxBase {
             uniquePackages.push(pkg);
         }
 
-        /*
-         * Sort ascending by due date: soonest first. Packages
-         * without a parseable due date fall to the end, sorted by
-         * packageID so their order is stable.
-         */
-        const now = Date.now();
         const sortedPackages = uniquePackages.sort(
             (a, b) => {
                 const aT = a.dueDate
@@ -659,25 +670,16 @@ class SparxMaths extends SparxBase {
         );
 
         /*
-         * Prefer packages whose due date is in the future. If
-         * nothing qualifies (all expired), keep the full list.
-         * Cap to 25 for Discord's select-menu limit.
+         * No due-date filter — past and future packages both
+         * stay. Sort ascending by due date, packages without a
+         * parseable date at the end, cap to 25 for Discord's
+         * select-menu limit.
          */
-        const upcoming = sortedPackages.filter(
-            (p) => p.dueDate && p.dueDate.getTime() >= now
-        );
-
-        const trimmed = (
-            upcoming.length > 0
-                ? upcoming
-                : sortedPackages
-        ).slice(0, 25);
+        const trimmed = sortedPackages.slice(0, 25);
 
         console.log(
             '[Sparx] Modern packages found:',
             uniquePackages.length,
-            'upcoming:',
-            upcoming.length,
             'trimmed:',
             trimmed.length
         );
@@ -698,11 +700,6 @@ class SparxMaths extends SparxBase {
         };
     }
 
-    /*
-     * Parse strings of the shape "Thursday 16th July 3pm" into a
-     * Date. Returns null on failure. The weekday prefix is
-     * discarded; only the day/month/time is used.
-     */
     parseDueText(text) {
 
         if (!text) return null;
@@ -771,11 +768,6 @@ class SparxMaths extends SparxBase {
             0
         );
 
-        /*
-         * If the due date lands before today by more than a few
-         * months, roll forward one year (December packages
-         * rolling into January of the next calendar year).
-         */
         const sixMonthsMs =
             180 * 24 * 60 * 60 * 1000;
         if (d.getTime() + sixMonthsMs < Date.now()) {
