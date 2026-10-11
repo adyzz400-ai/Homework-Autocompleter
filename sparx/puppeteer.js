@@ -1530,7 +1530,50 @@ async function getCookies(
           `[Sparx Packages] Final browser URL: ${page.url()}`
         );
 
+// ======================================================
+// FORCE GetPackageData CAPTURE
+// ======================================================
+//
+// The homework LIST page fires ListStudentPackages but
+// not GetPackageData. GetPackageData only fires when the
+// app opens a specific package's detail page. Navigate
+// there once so the sniffer captures the request bytes.
 
+try {
+
+  const firstPackageId =
+    '92078a5d-1e9d-4b32-8987-ca6a14b63fcc';
+
+  const detailUrl =
+    `https://maths.sparx-learning.com/student/homework/${firstPackageId}`;
+
+  addLog(
+    `[Sparx Packages] Opening detail page: ${detailUrl}`
+  );
+
+  await page.goto(detailUrl, {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000
+  });
+
+  addLog(
+    `[Sparx Packages] Detail page loaded: ${page.url()}`
+  );
+
+  // give the app time to fire its GetPackageData
+  await delay(8000);
+
+  addLog(
+    `[Sparx Packages] Detail settled URL: ${page.url()}`
+  );
+
+} catch (error) {
+
+  addLog(
+    `[Sparx Packages] Detail nav failed: ${error.message}`
+  );
+
+}
         // ======================================================
         // CLOSE BROWSER AND RETURN COOKIES
         // ======================================================
