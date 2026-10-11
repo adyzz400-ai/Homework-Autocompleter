@@ -445,6 +445,217 @@ async function selectSchoolResult(
 
 
 // ============================================================
+// REQUEST / RESPONSE SNIFFER HELPERS
+// ============================================================
+
+function stripGrpcFrame(body) {
+  if (
+    !body ||
+    body.length < 5
+  ) {
+    return body;
+  }
+  const messageLength =
+    body.readUInt32BE(1);
+  if (
+    messageLength <=
+    body.length - 5
+  ) {
+    return body.subarray(
+      5,
+      5 + messageLength
+    );
+  }
+  return body;
+}
+
+function attachNetworkSniffer(page, addLog) {
+
+  // ----------------------------------------------------------
+  // REQUESTS
+  // ----------------------------------------------------------
+
+  page.on(
+    'request',
+    request => {
+      const url =
+        request.url();
+
+      const isListStudentPackages =
+        url.includes(
+          '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
+        );
+
+      const isGetPackageData =
+        url.includes(
+          'Sparxweb/GetPackageData'
+        );
+
+      if (
+        !isListStudentPackages &&
+        !isGetPackageData
+      ) {
+        return;
+      }
+
+      const tag =
+        isGetPackageData
+          ? 'GetPackageData'
+          : 'ListStudentPackages';
+
+      try {
+        const postData = request.postData();
+        const body = postData
+          ? Buffer.from(postData, 'binary')
+          : null;
+
+        addLog(
+          `[Sparx ${tag}] REQUEST detected`
+        );
+        addLog(
+          `[Sparx ${tag}] request-method=${request.method()}`
+        );
+        addLog(
+          `[Sparx ${tag}] request-content-type=${
+            request.headers()['content-type'] || 'unknown'
+          }`
+        );
+        addLog(
+          `[Sparx ${tag}] request-size=${
+            body ? body.length : 0
+          }`
+        );
+
+        if (body) {
+          const payload =
+            stripGrpcFrame(body);
+
+          addLog(
+            `[Sparx ${tag}] request-payload-size=${payload.length}`
+          );
+          addLog(
+            `[Sparx ${tag}] request-payload-hex=${payload.toString('hex')}`
+          );
+          addLog(
+            `[Sparx ${tag}] request-payload-base64=${payload.toString('base64')}`
+          );
+          addLog(
+            `[Sparx ${tag}] request-first-bytes=${payload.subarray(0, 64).toString('hex')}`
+          );
+        }
+
+      } catch (error) {
+        addLog(
+          `[Sparx ${tag}] request diagnostic error: ${error.message}`
+        );
+      }
+    }
+  );
+
+  // ----------------------------------------------------------
+  // RESPONSES
+  // ----------------------------------------------------------
+
+  page.on(
+    'response',
+    async response => {
+      const url =
+        response.url();
+
+      const isListStudentPackages =
+        url.includes(
+          '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
+        );
+
+      const isGetPackageData =
+        url.includes(
+          'Sparxweb/GetPackageData'
+        );
+
+      if (
+        !isListStudentPackages &&
+        !isGetPackageData
+      ) {
+        return;
+      }
+
+      const tag =
+        isGetPackageData
+          ? 'GetPackageData'
+          : 'ListStudentPackages';
+
+      try {
+        const body =
+          await response.buffer();
+
+        addLog(
+          `[Sparx ${tag}] RESPONSE detected`
+        );
+        addLog(
+          `[Sparx ${tag}] status=${response.status()}`
+        );
+        addLog(
+          `[Sparx ${tag}] content-type=${
+            response.headers()['content-type'] || 'unknown'
+          }`
+        );
+        addLog(
+          `[Sparx ${tag}] response-size=${body.length}`
+        );
+
+        const payload =
+          stripGrpcFrame(body);
+
+        // printable-strings scan (only ListStudentPackages needs
+        // the full 80; GetPackageData just needs to be visible in
+        // the log so we can see what comes back)
+        const text =
+          payload.toString('utf8');
+
+        const strings =
+          text.match(
+            /[ -~]{4,}/g
+          ) || [];
+
+        const uniqueStrings =
+          [
+            ...new Set(
+              strings
+            )
+          ].slice(
+            0,
+            80
+          );
+
+        addLog(
+          `[Sparx ${tag}] printable-fields=${JSON.stringify(
+            uniqueStrings
+          )}`
+        );
+
+        // For GetPackageData also dump raw hex so we can see the
+        // shape even if the response is an error envelope.
+        if (
+          isGetPackageData
+        ) {
+          addLog(
+            `[Sparx ${tag}] response-hex=${payload
+              .slice(0, 512)
+              .toString('hex')}`
+          );
+        }
+
+      } catch (error) {
+        addLog(
+          `[Sparx ${tag}] response diagnostic error: ${error.message}`
+        );
+      }
+    }
+  );
+}
+
+
+// ============================================================
 // MAIN LOGIN
 // ============================================================
 
@@ -537,197 +748,11 @@ async function getCookies(
           'Screencast disabled.'
         );
 
-
         // ======================================================
-        // REAL SPARX PACKAGE REQUEST DIAGNOSTIC
+        // NETWORK SNIFFER (ListStudentPackages + GetPackageData)
         // ======================================================
 
-        page.on(
-          'request',
-          request => {
-            const url =
-              request.url();
-
-            if (
-              url.includes(
-                '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
-              )
-            ) {
-              try {
-                const postData = request.postData();
-
-                 const body = postData
-                    ? Buffer.from(postData, 'binary')
-                    : null;
-
-                addLog(
-                  '[Sparx Packages] REQUEST detected'
-                );
-
-                addLog(
-                  `[Sparx Packages] request-method=${request.method()}`
-                );
-
-                addLog(
-                  `[Sparx Packages] request-content-type=${
-                    request.headers()['content-type'] || 'unknown'
-                  }`
-                );
-
-                addLog(
-                  `[Sparx Packages] request-size=${
-                    body ? body.length : 0
-                  }`
-                );
-
-                if (body) {
-                  let payload =
-                    body;
-
-                  // Remove the 5-byte gRPC-Web frame.
-                  if (
-                    body.length >= 5
-                  ) {
-                    const messageLength =
-                      body.readUInt32BE(1);
-
-                    if (
-                      messageLength <=
-                      body.length - 5
-                    ) {
-                      payload =
-                        body.subarray(
-                          5,
-                          5 + messageLength
-                        );
-                    }
-                  }
-
-                  addLog(
-                    `[Sparx Packages] request-payload-size=${payload.length}`
-                  );
-
-                  // ------------------------------------------------
-                  // NEW: ACTUAL PROTOBUF REQUEST PAYLOAD
-                  // ------------------------------------------------
-
-                  addLog(
-                    `[Sparx Packages] request-payload-hex=${payload.toString('hex')}`
-                  );
-
-                  addLog(
-                    `[Sparx Packages] request-payload-base64=${payload.toString('base64')}`
-                  );
-
-                  // ------------------------------------------------
-                  // Basic protobuf byte diagnostics.
-                  // This does NOT decode or modify the request.
-                  // ------------------------------------------------
-
-                  addLog(
-                    `[Sparx Packages] request-first-bytes=${payload.subarray(0, 64).toString('hex')}`
-                  );
-                }
-
-              } catch (error) {
-                addLog(
-                  `[Sparx Packages] request diagnostic error: ${error.message}`
-                );
-              }
-            }
-          }
-        );
-
-
-        page.on(
-          'response',
-          async response => {
-            const url =
-              response.url();
-
-            if (
-              url.includes(
-                '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
-              )
-            ) {
-              try {
-                const body =
-                  await response.buffer();
-
-                addLog(
-                  '[Sparx Packages] RESPONSE detected'
-                );
-
-                addLog(
-                  `[Sparx Packages] status=${response.status()}`
-                );
-
-                addLog(
-                  `[Sparx Packages] content-type=${
-                    response.headers()['content-type'] || 'unknown'
-                  }`
-                );
-
-                addLog(
-                  `[Sparx Packages] response-size=${body.length}`
-                );
-
-                let payload =
-                  body;
-
-                if (
-                  body.length >= 5
-                ) {
-                  const messageLength =
-                    body.readUInt32BE(1);
-
-                  if (
-                    messageLength <=
-                    body.length - 5
-                  ) {
-                    payload =
-                      body.subarray(
-                        5,
-                        5 + messageLength
-                      );
-                  }
-                }
-
-                const text =
-                  payload.toString(
-                    'utf8'
-                  );
-
-                const strings =
-                  text.match(
-                    /[ -~]{4,}/g
-                  ) || [];
-
-                const uniqueStrings =
-                  [
-                    ...new Set(
-                      strings
-                    )
-                  ].slice(
-                    0,
-                    80
-                  );
-
-                addLog(
-                  `[Sparx Packages] printable-fields=${JSON.stringify(
-                    uniqueStrings
-                  )}`
-                );
-
-              } catch (error) {
-                addLog(
-                  `[Sparx Packages] response diagnostic error: ${error.message}`
-                );
-              }
-            }
-          }
-        );
-
+        attachNetworkSniffer(page, addLog);
 
         // ======================================================
         // PAGE ERROR DIAGNOSTICS
@@ -1463,47 +1488,48 @@ async function getCookies(
         const cookieString =
           `live_ssoprovider_session=${live.value}; spxlrn_session=${spx.value}`;
 
-                          addLog(
-            'Login successful, cookies validated.'
-          );
-          
-          // ======================================================
-          // TRIGGER MODERN HOMEWORK REQUEST
-          // ======================================================
-          
+        addLog(
+          'Login successful, cookies validated.'
+        );
+
+
+        // ======================================================
+        // TRIGGER MODERN HOMEWORK REQUEST
+        // ======================================================
+
+        addLog(
+          '[Sparx Packages] Reloading authenticated Maths page...'
+        );
+
+        try {
+
+          await page.reload({
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
+          });
+
           addLog(
-            '[Sparx Packages] Reloading authenticated Maths page...'
+            `[Sparx Packages] Authenticated Maths page reloaded: ${page.url()}`
           );
-          
-          try {
-          
-            await page.reload({
-              waitUntil: 'domcontentloaded',
-              timeout: 30000
-            });
-          
-            addLog(
-              `[Sparx Packages] Authenticated Maths page reloaded: ${page.url()}`
-            );
-          
-          } catch (error) {
-          
-            addLog(
-              `[Sparx Packages] Maths reload warning: ${error.message}`
-            );
-          
-          }
-          
-          // Give the Sparx React app time to make its API requests.
+
+        } catch (error) {
+
           addLog(
-            '[Sparx Packages] Waiting for ListStudentPackages response...'
+            `[Sparx Packages] Maths reload warning: ${error.message}`
           );
-          
-          await delay(10000);
-          
-          addLog(
-            `[Sparx Packages] Final browser URL: ${page.url()}`
-          );
+
+        }
+
+        addLog(
+          '[Sparx Packages] Waiting for ListStudentPackages response...'
+        );
+
+        await delay(10000);
+
+        addLog(
+          `[Sparx Packages] Final browser URL: ${page.url()}`
+        );
+
 
         // ======================================================
         // CLOSE BROWSER AND RETURN COOKIES
