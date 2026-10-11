@@ -446,21 +446,6 @@ class SparxMaths extends SparxBase {
         return fields;
     }
 
-    /* ------------------------------------------------------------------ */
-    /*  PackageCompletion decoder                                          */
-    /*                                                                     */
-    /*  Field map (best-guess from live dumps):                            */
-    /*    1:2  string  name              -> packages/<uuid>                */
-    /*    2:2  string  title                                               */
-    /*    3:2  string  package_type      -> homework / independentlearning */
-    /*    4:0  varint  kind                                                */
-    /*    5:2  string  assignment        -> assignments/<uuid>             */
-    /*    6:2  message stats                                               */
-    /*    8:2  message start (Timestamp)                                   */
-    /*    9:2  message due   (Timestamp)                                   */
-    /*   11:2  message metadata (map)                                      */
-    /* ------------------------------------------------------------------ */
-
     timestampFromField(field) {
         if (!field || !field.nested) return null;
         for (const sub of field.nested) {
@@ -911,7 +896,7 @@ class SparxMaths extends SparxBase {
             getPackages: false,
             getTasks: true,
             getTaskItems: false,
-            packageID: `packages/${packageID}`,
+            packageID: packageID,
             taskIndex: 0,
             taskItemIndex: 0
         };
