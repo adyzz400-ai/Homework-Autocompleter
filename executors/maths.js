@@ -109,8 +109,6 @@ async function mathsExecuter(
         homeworks
     );
 
-    // getHomeworks() now returns packages already sorted by
-    // ascending due date (soonest first), capped to 25.
     const orderedList =
         homeworks.packages.slice();
 
@@ -563,19 +561,14 @@ async function mathsExecuter(
                     'settings'
                 ) {
 
-                    if (!existingAccount) {
-
-                        await componentInteraction
-                            .reply({
-                                flags:
-                                    64,
-
-                                content:
-                                    'Settings are not available until a SparxNow account is configured.'
-                            });
-
-                        return;
-                    }
+                    /*
+                     * Settings open for both account flows.
+                     * Discord-only login has no legacy
+                     * `accounts` row, so checkAccount()
+                     * returns null. Hand handleSetting a
+                     * defaults object so the modal renders
+                     * and the min/max can still be saved.
+                     */
 
                     await componentInteraction
                         .deferReply({
@@ -583,11 +576,29 @@ async function mathsExecuter(
                                 64
                         });
 
-                    const account =
-                        await checkAccount(
-                            componentInteraction
-                                .user.id
-                        );
+                    let account = null;
+
+                    try {
+                        account =
+                            await checkAccount(
+                                componentInteraction
+                                    .user.id
+                            );
+                    } catch { /* ignore */ }
+
+                    if (!account) {
+                        account = {
+                            sparx_maths_settings: {
+                                min: 60,
+                                max: 100,
+                                model: '3.5-flash-lite',
+                                pdfSettings: {
+                                    question: false,
+                                    working_out: false
+                                }
+                            }
+                        };
+                    }
 
                     await handleSetting(
                         componentInteraction,
