@@ -11,7 +11,7 @@ async function addToDb(discord_id, master_password, license) {
 
     console.log("Add to db activated");
 
-    if ( (await checkAccount(discord_id)) !== null) return false; // free_trial_start: new Date()
+    if ( (await checkAccount(discord_id)) !== null) return false;
 
     const { error } = await supabase
     .from('accounts')
@@ -27,9 +27,9 @@ async function addToDb(discord_id, master_password, license) {
 async function resetAllUses() {
     const { data, error } = await supabase
         .from('accounts')
-        .update({ uses: {}, used_main_account: false })  // set uses to empty object
-        .not('discord_id', 'is', null)  // effectively updates all rows
-        .select();             // optional: return updated rows
+        .update({ uses: {}, used_main_account: false })
+        .not('discord_id', 'is', null)
+        .select();
 
     if (error) {
         console.error('Error updating accounts:', error);
@@ -40,11 +40,10 @@ async function resetAllUses() {
     return data;
 }
 
-
 async function getAudit() {
     const { data, error } = await supabase
     .from('accounts')
-    .select('discord_id, license, free_trial_start'); // get only these columns
+    .select('discord_id, license, free_trial_start');
 
     if (error) {
     console.error('Error fetching accounts:', error);
@@ -56,7 +55,6 @@ async function getAudit() {
 }
 
 async function removeMainAccount(discordId, platform) {
-    // 1. Get the current accounts for this specific Discord ID
     const { data, error } = await supabase
         .from('accounts')
         .select('main_accounts')
@@ -70,11 +68,9 @@ async function removeMainAccount(discordId, platform) {
 
     const currentAccounts = data.main_accounts;
 
-    // 2. Check if the platform exists, then delete it
     if (currentAccounts && currentAccounts[platform]) {
-        delete currentAccounts[platform]; // Remove the key
+        delete currentAccounts[platform];
 
-        // 3. Push the update back to Supabase
         const { error: updateError } = await supabase
             .from('accounts')
             .update({ main_accounts: currentAccounts })
@@ -98,22 +94,21 @@ async function checkDuplicatesMainAccounts(platform, accountId, discordId, check
         .from('accounts')
         .select('discord_id, main_accounts');
 
-    let matchDiscordId = null; // Default to null (instead of false)
+    let matchDiscordId = null;
 
     for (const row of data) {
-        // Check if platform exists AND (we are checking self OR it belongs to someone else)
         if (row.main_accounts[platform] && (checkSelf || (row.discord_id !== discordId))) {
-            
+
             const isMatch = await hashCompare(accountId, row.main_accounts[platform]);
-            
+
             if (isMatch) {
                 console.log(`Match with ${row.discord_id}`);
-                matchDiscordId = row.discord_id; // Store the ID
+                matchDiscordId = row.discord_id;
                 break;
             }
         }
     }
-    return matchDiscordId; // Returns the ID string or null
+    return matchDiscordId;
 }
 
 async function addMainAccount(discord_id, platform, accountId) {
@@ -154,7 +149,6 @@ async function updateDB(discord_id, data) {
 }
 
 async function clearSpecificService(service) {
-  // 1. Fetch only ID and the JSON column
   const { data: accounts, error: fetchError } = await supabase
     .from('accounts')
     .select('discord_id, main_accounts');
@@ -164,17 +158,13 @@ async function clearSpecificService(service) {
     return;
   }
 
-  // 2. Prepare update promises
   const updates = accounts.map(async (account) => {
     const jsonData = account.main_accounts;
 
-    // Check if the service exists in this row's JSON
     if (jsonData && jsonData[service]) {
-      
-      // Delete the specific key
+
       delete jsonData[service];
 
-      // Update the specific row
       const { error: updateError } = await supabase
         .from('accounts')
         .update({ main_accounts: jsonData })
@@ -184,7 +174,6 @@ async function clearSpecificService(service) {
     }
   });
 
-  // 3. Execute all updates
   await Promise.all(updates);
   console.log(`Finished clearing ${service}.`);
 }
@@ -192,9 +181,9 @@ async function clearSpecificService(service) {
 async function checkAccount(discord_id, license) {
     const { data } = await supabase
         .from('accounts')
-        .select('*')      // select all columns
-        .eq('discord_id', discord_id)      // filter where id = 1
-        .single();        // get a single row instead of an array
+        .select('*')
+        .eq('discord_id', discord_id)
+        .single();
 
     if (data) {
         if (license !== undefined && data.license !== license) {
@@ -211,12 +200,36 @@ async function checkAccount(discord_id, license) {
 }
 
 async function updateStats(discord_id, platform, time_saved) {
+    /*
+     * Discord-only sparx login has no `accounts` row, so
+     * checkAccount() returns null. Without this guard,
+     * `.total_usage` on null throws and the whole cleanup
+     * path fails — which was stopping the session from
+     * being terminated properly.
+     */
     const account = await checkAccount(discord_id);
-    if (!account.total_usage[platform]) {
-        account.total_usage[platform] = {total_uses: 0, time_saved: 0};
+
+    if (!account) {
+        console.log(
+            `[updateStats] no accounts row for ${discord_id}; skipping`
+        );
+        return;
     }
+
+    if (!account.total_usage) {
+        account.total_usage = {};
+    }
+
+    if (!account.total_usage[platform]) {
+        account.total_usage[platform] = {
+            total_uses: 0,
+            time_saved: 0
+        };
+    }
+
     account.total_usage[platform].total_uses += 1;
     account.total_usage[platform].time_saved += time_saved;
+
     await updateDB(discord_id, account);
 }
 
