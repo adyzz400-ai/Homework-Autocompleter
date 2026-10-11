@@ -1342,4 +1342,4 @@ class SparxMaths extends SparxBase {
     }
 }
 
-module.exports = SparxMaths;
+module.exports = { SparxMaths };
