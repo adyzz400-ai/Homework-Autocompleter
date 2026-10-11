@@ -355,23 +355,23 @@ class sparxMathsAutocompleter {
             !cancelledFlag()
         ) {
             const timeLeft = waitMs - elapsedLoop;
-            const sleep = MathResponse.min(interval, timeLeft);
-            await new Promise =
-(
-                resolve => setTimeout(resolve,            sleep)
+            const sleep = Math.min(interval, timeLeft);
+            await new Promise(
+                resolve => setTimeout(resolve, sleep)
             );
-            elapsedLoop += await sleep;
+            elapsedLoop += sleep;
         }
     }
 
-    async answerQuestion this(
+    async answerQuestion(
         answerObject,
-.sp        sparxMathsExecuter,
+        sparxMathsExecuter,
         working_out,
         question
     ) {
 
-        const answerarxMaths.answerQuestion(answerObject);
+        const answerResponse =
+            await this.sparxMaths.answerQuestion(answerObject);
 
         this.log.logToFile('---');
         this.log.logToFile(answerResponse);
@@ -913,7 +913,7 @@ async function sparxMathsAutocomplete(
 
                             const data =
                                 await sparxMaths.getActivity(
-                                    sparxMathsExecuterwork.getTimestamp(),
+                                    sparxMathsExecuter.getTimestamp(),
                                     packageID,
                                     task.taskIndex,
                                     index,
@@ -925,7 +925,7 @@ async function sparxMathsAutocomplete(
                             activityIndex = data.activityIndex;
 
                             const commonAnswers =
-                                getBookCheckAnswer(
+                                getBookworkCheckAnswer(
                                     data,
                                     commonAnswersPrevious
                                 );
