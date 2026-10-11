@@ -12,38 +12,26 @@ class logger {
         this.init();
     }
 
-    /**
-     * Generates a timestamp string. 
-     * Uses ISO format (YYYY-MM-DD HH:MM:SS) which is easy to read and sort.
-     */
     getCurrentTime() {
         return new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
     }
 
     logToFile(...args) {
-        // Format the incoming arguments (objects, strings, etc.)
         const message = util.format(...args);
-        
-        // Create the line with the timestamp
         const logLine = `[${this.getCurrentTime()}] ${message}`;
 
-        // Ensure logFile exists and is writable
         if (this.logFile && this.logFile.writable) {
             this.logFile.write(logLine + '\n');
         }
-
-        // Optional: Also print to console so you can see it live while debugging
-        // console.log(logLine);
     }
 
     async sendToWebhook() {
         const filePath = path.resolve(this.filepath);
-        
-        // 1. Close the Write Stream to ensure all data is flushed to disk
+
         if (this.logFile) {
             await new Promise((resolve) => {
                 this.logFile.end(() => {
-                    this.logFile = null; // Mark as closed
+                    this.logFile = null;
                     resolve();
                 });
             });
@@ -60,7 +48,6 @@ class logger {
             ]
         };
 
-        // 2. Check if file exists AND has content
         if (fs.existsSync(filePath)) {
             const stats = fs.statSync(filePath);
             if (stats.size > 0) {
@@ -70,12 +57,11 @@ class logger {
             }
         }
 
-        // 3. Append the JSON payload
         form.append('payload_json', JSON.stringify({ embeds: [embed] }));
 
         if (!WEBHOOK_URL) return;
         try {
-            await axios.post(WEBHOOK_URL, form, { 
+            await axios.post(WEBHOOK_URL, form, {
                 headers: form.getHeaders(),
                 maxBodyLength: Infinity,
                 maxContentLength: Infinity
@@ -83,19 +69,25 @@ class logger {
         } catch (error) {
             console.error("Webhook failed:", error.response ? error.response.data : error.message);
         }
-        
-        // Optional: Re-init if you plan to keep logging after sending
-        // this.init(); 
     }
 
     init() {
-        // Ensure directory exists if needed, otherwise just create file
-        // Validates that the file path is writeable
         try {
+            /*
+             * Ensure the parent directory exists before touching
+             * the file. Without this, writeFileSync throws ENOENT
+             * when `logs/sparx_maths/` hasn't been created yet
+             * (which is the case on a fresh Render container).
+             */
+            const dir = path.dirname(this.filepath);
+            if (dir && dir !== '.' && !fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+
             if (!fs.existsSync(this.filepath)) {
                 fs.writeFileSync(this.filepath, '');
             }
-            this.logFile = fs.createWriteStream(this.filepath, { flags: 'a' }); 
+            this.logFile = fs.createWriteStream(this.filepath, { flags: 'a' });
         } catch (err) {
             console.error("Failed to initialize logger:", err);
         }
