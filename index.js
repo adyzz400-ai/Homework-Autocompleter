@@ -96,7 +96,11 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Health server listening on port ${PORT}`);
 });
-
+if (process.env.FUZZ_GPD === '1') {
+    require('./sparx-debug-gpd.js')().catch((e) =>
+        console.error('[GPD-FUZZ] top-level error:', e)
+    );
+}
 // Ensure the file exists
 if (!fs.existsSync('logs.txt')) {
     fs.writeFileSync('logs.txt', '');
