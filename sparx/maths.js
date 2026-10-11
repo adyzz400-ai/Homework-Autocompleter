@@ -527,7 +527,6 @@ class SparxMaths extends SparxBase {
 
             for (const f of top.nested) {
 
-                // 1: name
                 if (f.fieldNumber === 1 && f.string) {
                     const m = f.string.match(
                         /packages\/([0-9a-f-]{36})/i
@@ -536,7 +535,6 @@ class SparxMaths extends SparxBase {
                     continue;
                 }
 
-                // 2: title
                 if (f.fieldNumber === 2 && f.string) {
                     const raw = f.string.trim();
                     const dueMatch = raw.match(/^(.+?)\s+due\s+(.+)$/i);
@@ -552,33 +550,27 @@ class SparxMaths extends SparxBase {
                     continue;
                 }
 
-                // 3: package type
                 if (f.fieldNumber === 3 && f.string) {
                     pkg.packageType = f.string;
                     continue;
                 }
 
-                // 8: start Timestamp
                 if (f.fieldNumber === 8 && f.nested) {
                     const d = this.timestampFromField(f);
                     if (d) pkg.startDate = d;
                     continue;
                 }
 
-                // 9: due Timestamp
                 if (f.fieldNumber === 9 && f.nested) {
                     const d = this.timestampFromField(f);
                     if (d) pkg.dueDate = d;
                     continue;
                 }
 
-                // 6: stats
                 if (f.fieldNumber === 6 && f.nested) {
                     for (const s of f.nested) {
-                        // 1: xp block
                         if (s.fieldNumber === 1 && s.nested) {
                             for (const t of s.nested) {
-                                // target XP (double)
                                 if (
                                     t.fieldNumber === 1 &&
                                     t.wireType === 1 &&
@@ -586,7 +578,6 @@ class SparxMaths extends SparxBase {
                                 ) {
                                     targetXp = t.double;
                                 }
-                                // 3: map entry { key=1 string, value=2 double }
                                 if (t.fieldNumber === 3 && t.nested) {
                                     let key = null;
                                     let val = null;
@@ -609,12 +600,10 @@ class SparxMaths extends SparxBase {
                 }
             }
 
-            // Fill in dueText from dueDate if we got the timestamp
             if (pkg.dueDate && !pkg.dueText) {
                 pkg.dueText = this.formatDue(pkg.dueDate);
             }
 
-            // Compute percentage from compulsory / target XP
             if (targetXp && targetXp > 0) {
                 pkg.numTaskItems = Math.round(targetXp);
                 pkg.numTasks = pkg.numTaskItems;
@@ -727,7 +716,6 @@ class SparxMaths extends SparxBase {
                 '[Sparx][RAW] top-level fields:',
                 rawFields.length
             );
-            // print first few packages' top-level tags
             let printed = 0;
             for (const f of rawFields) {
                 if (f.fieldNumber !== 1 || !f.nested) continue;
@@ -755,7 +743,6 @@ class SparxMaths extends SparxBase {
 
         let packages = this.packagesFromRawWalk(rawFields);
 
-        // If the walk failed entirely, fall back to string scrape
         if (packages.length === 0) {
             console.log(
                 '[Sparx] raw walk produced 0 packages — string scrape fallback'
@@ -798,7 +785,6 @@ class SparxMaths extends SparxBase {
             if (currentPackage) packages.push(currentPackage);
         }
 
-        // Deduplicate
         const uniquePackages = [];
         const seen = new Set();
         for (const pkg of packages) {
@@ -808,15 +794,6 @@ class SparxMaths extends SparxBase {
             uniquePackages.push(pkg);
         }
 
-        /*
-         * Latest homeworks only.
-         *
-         * Filter:
-         *  - type homework (or unknown type)
-         *  - has a due date
-         *  - due within [now - 14d, now + 60d]
-         * Sort soonest-first. Cap at 25.
-         */
         const now = Date.now();
         const windowStart = now - 14 * 24 * 60 * 60 * 1000;
         const windowEnd = now + 60 * 24 * 60 * 60 * 1000;
@@ -908,7 +885,7 @@ class SparxMaths extends SparxBase {
             getPackages: false,
             getTasks: false,
             getTaskItems: true,
-            packageID,
+            packageID: `packages/${packageID}`,
             taskIndex,
             taskItemIndex: 0
         };
@@ -934,7 +911,7 @@ class SparxMaths extends SparxBase {
             getPackages: true,
             getTasks: true,
             getTaskItems: false,
-            packageID,
+            packageID: `packages/${packageID}`,
             taskIndex: 0,
             taskItemIndex: 0
         };
