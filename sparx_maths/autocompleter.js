@@ -4,10 +4,7 @@ const {
     ButtonStyle,
     ActionRowBuilder,
     ComponentType,
-    AttachmentBuilder,
-    ContainerBuilder,
-    FileBuilder,
-    TextDisplayBuilder
+    AttachmentBuilder
 } = require('discord.js');
 
 const {
@@ -182,13 +179,46 @@ class sparxMathsAutocompleter {
                 bookworkRow && bookworkRow.bookworks
             );
 
-        const pdfAttachment =
-            await convertToPDF(
-                bookworksObj,
-                this.packageID,
-                this.pdfSettings.working_out,
-                this.pdfSettings.question
+        /*
+         * Skip the PDF entirely when there are no bookwork
+         * codes to render. The old code called convertToPDF()
+         * on an empty object, got nothing back, and then tried
+         * to send a ContainerBuilder in a DM — which Discord
+         * rejects with 50035 UNION_TYPE_CHOICES.
+         */
+        const hasBookworks =
+            bookworksObj &&
+            Object.keys(bookworksObj).length > 0;
+
+        if (!hasBookworks) {
+            try {
+                await this.interaction.user.send({
+                    content: '# Session Finished!\nNo bookwork codes were captured for this session.'
+                });
+            } catch (e) {
+                console.log(
+                    "Failed to send finish DM:",
+                    e
+                );
+            }
+            return;
+        }
+
+        let pdfAttachment = null;
+        try {
+            pdfAttachment =
+                await convertToPDF(
+                    bookworksObj,
+                    this.packageID,
+                    this.pdfSettings.working_out,
+                    this.pdfSettings.question
+                );
+        } catch (e) {
+            console.log(
+                "convertToPDF failed:",
+                e
             );
+        }
 
         try {
 
@@ -203,25 +233,9 @@ class sparxMathsAutocompleter {
                         { name: 'results.pdf' }
                     );
 
-                const container =
-                    new ContainerBuilder()
-                        .addTextDisplayComponents(
-                            new TextDisplayBuilder()
-                                .setContent(
-                                    '# Session Finished!'
-                                ).data
-                        )
-                        .addFileComponents(
-                            new FileBuilder()
-                                .setURL(
-                                    'attachment://results.pdf'
-                                )
-                        );
-
                 await this.interaction.user.send({
-                    files: [attachment],
-                    components: [container],
-                    flags: 32768
+                    content: '# Session Finished!',
+                    files: [attachment]
                 });
 
                 fs.unlinkSync(pdfAttachment);
@@ -229,21 +243,13 @@ class sparxMathsAutocompleter {
             } else {
 
                 await this.interaction.user.send({
-                    components: [
-                        new ContainerBuilder()
-                            .addTextDisplayComponents(
-                                new TextDisplayBuilder()
-                                    .setContent(
-                                        '# Session Finished!\nCould not generate a PDF of the bookwork codes.'
-                                    ).data
-                            )
-                    ]
+                    content: '# Session Finished!\nCould not generate a PDF of the bookwork codes.'
                 });
             }
 
         } catch (e) {
             console.log(
-                "Failed to send feedback DM:",
+                "Failed to send finish DM:",
                 e
             );
         }
@@ -534,13 +540,6 @@ async function sparxMathsAutocomplete(
     timeSettings
 ) {
 
-    /*
-     * Guard the account lookup. A user who signed in via the
-     * Discord-only sparx flow has no row in the `accounts`
-     * table, so checkAccount() returns null. The apikey is
-     * optional — parser() falls back to the global Gemini
-     * client when no per-user key is present.
-     */
     const account =
         await checkAccount(interaction.user.id);
 
