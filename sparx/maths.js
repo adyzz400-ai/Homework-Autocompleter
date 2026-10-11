@@ -332,7 +332,7 @@ class SparxMaths extends SparxBase {
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Pure-JS protobuf raw walker (no schema required)                  */
+    /*  Pure-JS protobuf raw walker                                       */
     /* ------------------------------------------------------------------ */
 
     readVarint(buf, offset) {
@@ -349,12 +349,7 @@ class SparxMaths extends SparxBase {
         return { value: result, next: pos };
     }
 
-    /**
-     * Walk a protobuf message and return every field as
-     * { fieldNumber, wireType, value }.
-     * Nested length-delimited messages are recursed one level.
-     */
-    walkProtobuf(buf, depth = 0, maxDepth = 4) {
+    walkProtobuf(buf, depth = 0, maxDepth = 6) {
         const fields = [];
         let pos = 0;
         const end = buf.length;
@@ -367,7 +362,7 @@ class SparxMaths extends SparxBase {
                 const fieldNumber = tag >>> 3;
                 const wireType = tag & 0x7;
 
-                if (wireType === 0) { // varint
+                if (wireType === 0) {
                     const v = this.readVarint(buf, pos);
                     pos = v.next;
                     fields.push({
@@ -376,16 +371,20 @@ class SparxMaths extends SparxBase {
                         value: Number(v.value),
                         big: v.value
                     });
-                } else if (wireType === 1) { // 64-bit
+                } else if (wireType === 1) {
                     if (pos + 8 > end) break;
                     const slice = buf.subarray(pos, pos + 8);
                     pos += 8;
+                    const hex = Buffer.from(slice).toString('hex');
+                    let asDouble = null;
+                    try { asDouble = Buffer.from(slice).readDoubleLE(0); } catch (_) {}
                     fields.push({
                         fieldNumber,
                         wireType: 1,
-                        value: Buffer.from(slice).toString('hex')
+                        hex,
+                        double: asDouble
                     });
-                } else if (wireType === 2) { // length-delimited
+                } else if (wireType === 2) {
                     const lenRes = this.readVarint(buf, pos);
                     pos = lenRes.next;
                     const len = Number(lenRes.value);
@@ -393,7 +392,6 @@ class SparxMaths extends SparxBase {
                     const slice = buf.subarray(pos, pos + len);
                     pos += len;
 
-                    // try UTF-8 string first
                     let asString = null;
                     try {
                         const s = Buffer.from(slice).toString('utf8');
@@ -414,12 +412,7 @@ class SparxMaths extends SparxBase {
                         nested: null
                     };
 
-                    // recurse if it looks like a message and depth allows
-                    if (
-                        !asString &&
-                        depth < maxDepth &&
-                        len > 2
-                    ) {
+                    if (!asString && depth < maxDepth && len > 0) {
                         try {
                             entry.nested = this.walkProtobuf(
                                 slice,
@@ -429,22 +422,21 @@ class SparxMaths extends SparxBase {
                         } catch (_) {}
                     }
 
-                    if (!asString && !entry.nested) {
+                    if (!asString && (!entry.nested || entry.nested.length === 0)) {
                         entry.bytes = Buffer.from(slice).toString('base64');
                     }
 
                     fields.push(entry);
-                } else if (wireType === 5) { // 32-bit
+                } else if (wireType === 5) {
                     if (pos + 4 > end) break;
                     const slice = buf.subarray(pos, pos + 4);
                     pos += 4;
                     fields.push({
                         fieldNumber,
                         wireType: 5,
-                        value: Buffer.from(slice).toString('hex')
+                        hex: Buffer.from(slice).toString('hex')
                     });
                 } else {
-                    // unknown / group — abort this message
                     break;
                 }
             } catch (_) {
@@ -454,278 +446,259 @@ class SparxMaths extends SparxBase {
         return fields;
     }
 
-    /**
-     * Turn the raw walk into the package objects the rest of the
-     * bot already understands.
-     * Until we have exact field numbers this is best-effort:
-     * it pulls every UUID that looks like a package id and any
-     * nearby title / due-date strings.
-     */
+    /* ------------------------------------------------------------------ */
+    /*  PackageCompletion decoder                                          */
+    /*                                                                     */
+    /*  Field map (best-guess from live dumps):                            */
+    /*    1:2  string  name              -> packages/<uuid>                */
+    /*    2:2  string  title                                               */
+    /*    3:2  string  package_type      -> homework / independentlearning */
+    /*    4:0  varint  kind                                                */
+    /*    5:2  string  assignment        -> assignments/<uuid>             */
+    /*    6:2  message stats                                               */
+    /*    8:2  message start (Timestamp)                                   */
+    /*    9:2  message due   (Timestamp)                                   */
+    /*   11:2  message metadata (map)                                      */
+    /* ------------------------------------------------------------------ */
+
+    timestampFromField(field) {
+        if (!field || !field.nested) return null;
+        for (const sub of field.nested) {
+            if (sub.fieldNumber === 1 && sub.wireType === 0) {
+                const secs = sub.value;
+                if (
+                    typeof secs === 'number' &&
+                    secs > 1_600_000_000 &&
+                    secs < 2_200_000_000
+                ) {
+                    return new Date(secs * 1000);
+                }
+            }
+        }
+        return null;
+    }
+
+    formatDue(date) {
+        if (!date) return null;
+        const days = [
+            'Sunday', 'Monday', 'Tuesday', 'Wednesday',
+            'Thursday', 'Friday', 'Saturday'
+        ];
+        const months = [
+            'January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+        const day = date.getUTCDate();
+        const ord =
+            day % 10 === 1 && day !== 11 ? 'st' :
+            day % 10 === 2 && day !== 12 ? 'nd' :
+            day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+        let hour = date.getUTCHours();
+        const ampm = hour >= 12 ? 'pm' : 'am';
+        hour = hour % 12;
+        if (hour === 0) hour = 12;
+        return `${days[date.getUTCDay()]} ${day}${ord} ${months[date.getUTCMonth()]} ${hour}${ampm}`;
+    }
+
     packagesFromRawWalk(fields) {
+
         const packages = [];
-        let current = null;
 
-        const uuidRe =
-            /packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-        const dueRe =
-            /^#?\s*(.+?)\s+due\s+(.+)$/i;
+        for (const top of fields) {
 
-        const visit = (list) => {
-            for (const f of list) {
-                if (f.string) {
-                    const uuidMatch = f.string.match(uuidRe);
-                    if (uuidMatch) {
-                        if (current) packages.push(current);
-                        current = {
-                            packageID: uuidMatch[1],
-                            title: 'Homework',
-                            dueText: null,
-                            dueDate: null,
-                            numTaskItems: 0,
-                            numTaskItemsDone: 0,
-                            numTasks: 0,
-                            numTasksComplete: 0,
-                            _rawFields: []
-                        };
-                        continue;
+            if (top.fieldNumber !== 1 || !top.nested) continue;
+
+            const pkg = {
+                packageID: null,
+                title: 'Homework',
+                dueText: null,
+                dueDate: null,
+                startDate: null,
+                packageType: null,
+                numTaskItems: 0,
+                numTaskItemsDone: 0,
+                numTasks: 0,
+                numTasksComplete: 0,
+                percent: 0
+            };
+
+            let targetXp = null;
+            let doneXp = null;
+
+            for (const f of top.nested) {
+
+                // 1: name
+                if (f.fieldNumber === 1 && f.string) {
+                    const m = f.string.match(
+                        /packages\/([0-9a-f-]{36})/i
+                    );
+                    if (m) pkg.packageID = m[1];
+                    continue;
+                }
+
+                // 2: title
+                if (f.fieldNumber === 2 && f.string) {
+                    const raw = f.string.trim();
+                    const dueMatch = raw.match(/^(.+?)\s+due\s+(.+)$/i);
+                    if (dueMatch) {
+                        pkg.title =
+                            dueMatch[1]
+                                .replace(/^[^A-Za-z0-9]+/, '')
+                                .trim() || 'Homework';
+                        pkg.dueText = dueMatch[2].trim();
+                    } else if (raw) {
+                        pkg.title = raw;
                     }
+                    continue;
+                }
 
-                    if (current) {
-                        const dueMatch = f.string.match(dueRe);
-                        if (dueMatch && !current.dueText) {
-                            current.title =
-                                dueMatch[1]
-                                    .replace(/^[^A-Za-z0-9]+/, '')
-                                    .trim() || 'Homework';
-                            current.dueText = dueMatch[2].trim();
-                            current.dueDate =
-                                this.parseDueText(current.dueText);
-                        } else if (
-                            /^#?\s*homework\s*$/i.test(f.string) &&
-                            current.title === 'Homework'
-                        ) {
-                            current.title = 'Homework';
+                // 3: package type
+                if (f.fieldNumber === 3 && f.string) {
+                    pkg.packageType = f.string;
+                    continue;
+                }
+
+                // 8: start Timestamp
+                if (f.fieldNumber === 8 && f.nested) {
+                    const d = this.timestampFromField(f);
+                    if (d) pkg.startDate = d;
+                    continue;
+                }
+
+                // 9: due Timestamp
+                if (f.fieldNumber === 9 && f.nested) {
+                    const d = this.timestampFromField(f);
+                    if (d) pkg.dueDate = d;
+                    continue;
+                }
+
+                // 6: stats
+                if (f.fieldNumber === 6 && f.nested) {
+                    for (const s of f.nested) {
+                        // 1: xp block
+                        if (s.fieldNumber === 1 && s.nested) {
+                            for (const t of s.nested) {
+                                // target XP (double)
+                                if (
+                                    t.fieldNumber === 1 &&
+                                    t.wireType === 1 &&
+                                    typeof t.double === 'number'
+                                ) {
+                                    targetXp = t.double;
+                                }
+                                // 3: map entry { key=1 string, value=2 double }
+                                if (t.fieldNumber === 3 && t.nested) {
+                                    let key = null;
+                                    let val = null;
+                                    for (const u of t.nested) {
+                                        if (u.fieldNumber === 1 && u.string) key = u.string;
+                                        if (
+                                            u.fieldNumber === 2 &&
+                                            u.wireType === 1 &&
+                                            typeof u.double === 'number'
+                                        ) {
+                                            val = u.double;
+                                        }
+                                    }
+                                    if (key === 'C' && val != null) doneXp = val;
+                                }
+                            }
                         }
                     }
+                    continue;
                 }
-
-                // collect every varint near a package so we can
-                // later map field numbers → completion counts
-                if (current && f.wireType === 0) {
-                    current._rawFields.push({
-                        n: f.fieldNumber,
-                        v: f.value
-                    });
-                }
-
-                if (f.nested) visit(f.nested);
             }
-        };
 
-        visit(fields);
-        if (current) packages.push(current);
+            // Fill in dueText from dueDate if we got the timestamp
+            if (pkg.dueDate && !pkg.dueText) {
+                pkg.dueText = this.formatDue(pkg.dueDate);
+            }
+
+            // Compute percentage from compulsory / target XP
+            if (targetXp && targetXp > 0) {
+                pkg.numTaskItems = Math.round(targetXp);
+                pkg.numTasks = pkg.numTaskItems;
+                if (doneXp != null) {
+                    pkg.numTaskItemsDone = Math.round(doneXp);
+                    pkg.numTasksComplete = pkg.numTaskItemsDone;
+                    pkg.percent = Math.min(
+                        100,
+                        Math.round((doneXp / targetXp) * 100)
+                    );
+                }
+            }
+
+            if (pkg.packageID) {
+                packages.push(pkg);
+            }
+        }
+
         return packages;
     }
 
     extractPrintableStringsFromBytes(bytes) {
 
         const strings = [];
-
         let current = [];
 
         const flush = () => {
-
-            if (
-                current.length < 2
-            ) {
-
+            if (current.length < 2) {
                 current = [];
-
                 return;
             }
-
             const value =
-                Buffer
-                    .from(current)
+                Buffer.from(current)
                     .toString('utf8')
-                    .replace(
-                        /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g,
-                        ''
-                    )
+                    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
                     .trim();
-
-            if (
-                value.length >= 2
-            ) {
-
-                strings.push(
-                    value
-                );
-            }
-
+            if (value.length >= 2) strings.push(value);
             current = [];
         };
 
-        for (
-            const byte of bytes
-        ) {
-
-            if (
-                byte >= 32 &&
-                byte <= 126
-            ) {
-
-                current.push(
-                    byte
-                );
-
+        for (const byte of bytes) {
+            if (byte >= 32 && byte <= 126) {
+                current.push(byte);
             } else {
-
                 flush();
             }
         }
-
         flush();
-
         return strings;
-    }
-
-    classifyString(value) {
-
-        const trimmed =
-            String(value || '').trim();
-
-        if (!trimmed) return null;
-
-        const pkgMatch =
-            trimmed.match(
-                /^[-*]?\s*packages\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i
-            );
-
-        if (pkgMatch) {
-            return {
-                kind: 'package',
-                packageID: pkgMatch[1]
-            };
-        }
-
-        if (
-            /^(?:[-*]\s*)?(?:assignments|curriculums)\//i.test(
-                trimmed
-            )
-        ) {
-            return { kind: 'ignore' };
-        }
-
-        const dueMatch =
-            trimmed.match(
-                /^[^A-Za-z0-9]*#?\s*(.+?)\s+due\s+(.+?)\s*$/i
-            );
-
-        if (dueMatch) {
-
-            const title =
-                dueMatch[1]
-                    .replace(/^[^A-Za-z0-9]+/, '')
-                    .trim();
-
-            return {
-                kind: 'titleDue',
-                title: title || 'Homework',
-                dueText: dueMatch[2].trim()
-            };
-        }
-
-        if (/^[^A-Za-z0-9]*#?\s*homework\s*$/i.test(trimmed)) {
-            return {
-                kind: 'titleOnly',
-                title: 'Homework'
-            };
-        }
-
-        return { kind: 'ignore' };
     }
 
     async getHomeworks() {
 
-        console.log(
-            '[Sparx] ========================================'
-        );
+        console.log('[Sparx] ========================================');
+        console.log('[Sparx] MODERN HOMEWORK API');
+        console.log('[Sparx] ========================================');
 
-        console.log(
-            '[Sparx] MODERN HOMEWORK API'
-        );
-
-        console.log(
-            '[Sparx] ========================================'
-        );
-
-        if (
-            !this.sessionId
-        ) {
-
-            console.log(
-                '[Sparx] No ClientSession found. Creating one...'
-            );
-
+        if (!this.sessionId) {
+            console.log('[Sparx] No ClientSession found. Creating one...');
             await this.getClientSession();
         }
 
-        const request =
-            Buffer.from([
-                0x00,
-                0x00,
-                0x00,
-                0x00,
-                0x00
-            ]);
+        const request = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00]);
 
-        console.log(
-            '[Sparx] Calling ListStudentPackages...'
+        console.log('[Sparx] Calling ListStudentPackages...');
+
+        const response = await this.send(
+            'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/ListStudentPackages',
+            request
         );
 
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/ListStudentPackages',
-                request
-            );
-
-        console.log(
-            '[Sparx] ListStudentPackages HTTP:',
-            response?.status
-        );
-
-        console.log(
-            '[Sparx] ListStudentPackages content-type:',
-            response?.headers?.['content-type'] ||
-                response?.headers?.['Content-Type'] ||
-                'unknown'
-        );
-
+        console.log('[Sparx] ListStudentPackages HTTP:', response?.status);
         console.log(
             '[Sparx] ListStudentPackages bytes:',
             response?.data?.length || 0
         );
 
-        if (
-            !response?.data
-        ) {
-
-            console.log(
-                '[Sparx] ListStudentPackages returned no data.'
-            );
-
-            return {
-                packages: [],
-                tasks: [],
-                taskItems: []
-            };
+        if (!response?.data) {
+            console.log('[Sparx] ListStudentPackages returned no data.');
+            return { packages: [], tasks: [], taskItems: [] };
         }
 
         let payload = response.data;
-        if (Buffer.isBuffer(payload) === false) {
-            payload = Buffer.from(payload);
-        }
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
 
         if (payload.length >= 5) {
             const view = new DataView(
@@ -738,10 +711,7 @@ class SparxMaths extends SparxBase {
                 payload[0] === 0 &&
                 messageLength <= payload.length - 5
             ) {
-                payload = payload.subarray(
-                    5,
-                    5 + messageLength
-                );
+                payload = payload.subarray(5, 5 + messageLength);
             }
         }
 
@@ -750,20 +720,6 @@ class SparxMaths extends SparxBase {
             payload.length
         );
 
-        // ------------------------------------------------------------------
-        // TEMP CAPTURE — remove once we have the field numbers
-        // ------------------------------------------------------------------
-        console.log(
-            '[Sparx][PROTO-DUMP] base64 length',
-            payload.length
-        );
-        console.log(
-            '[Sparx][PROTO-DUMP]',
-            payload.toString('base64')
-        );
-        // ------------------------------------------------------------------
-
-        // Raw protobuf walk (gives us field numbers + values)
         let rawFields = [];
         try {
             rawFields = this.walkProtobuf(payload);
@@ -771,570 +727,321 @@ class SparxMaths extends SparxBase {
                 '[Sparx][RAW] top-level fields:',
                 rawFields.length
             );
-            // log a compact summary of every field number we saw
-            const summary = {};
-            const collect = (list) => {
-                for (const f of list) {
-                    const key = `${f.fieldNumber}:${f.wireType}`;
-                    summary[key] = (summary[key] || 0) + 1;
-                    if (f.nested) collect(f.nested);
+            // print first few packages' top-level tags
+            let printed = 0;
+            for (const f of rawFields) {
+                if (f.fieldNumber !== 1 || !f.nested) continue;
+                const tags = f.nested
+                    .map((x) => `${x.fieldNumber}:${x.wireType}`)
+                    .join(',');
+                let id = 'unknown';
+                for (const sub of f.nested) {
+                    if (sub.fieldNumber === 1 && sub.string) {
+                        const m = sub.string.match(
+                            /packages\/([0-9a-f-]{36})/i
+                        );
+                        if (m) { id = m[1].slice(0, 8); break; }
+                    }
                 }
-            };
-            collect(rawFields);
-            console.log(
-                '[Sparx][RAW] field:wire counts',
-                JSON.stringify(summary)
-            );
+                console.log(
+                    `[Sparx][PKG] ${id} top tags: ${tags}`
+                );
+                printed++;
+                if (printed >= 3) break;
+            }
         } catch (err) {
-            console.log(
-                '[Sparx][RAW] walk failed:',
-                err.message
-            );
+            console.log('[Sparx][RAW] walk failed:', err.message);
         }
 
-        // Prefer the structured walk; fall back to old string scraper
         let packages = this.packagesFromRawWalk(rawFields);
 
+        // If the walk failed entirely, fall back to string scrape
         if (packages.length === 0) {
             console.log(
-                '[Sparx] raw walk produced 0 packages — falling back to string scrape'
+                '[Sparx] raw walk produced 0 packages — string scrape fallback'
             );
-
-            const strings =
-                this.extractPrintableStringsFromBytes(
-                    payload
-                );
-
-            console.log(
-                '[Sparx] Modern package strings:',
-                strings.length
-            );
-
+            const strings = this.extractPrintableStringsFromBytes(payload);
             let currentPackage = null;
-
             for (const value of strings) {
-
-                const classified =
-                    this.classifyString(value);
-
-                if (!classified) continue;
-
-                if (classified.kind === 'package') {
-
-                    if (currentPackage) {
-                        packages.push(currentPackage);
-                    }
-
+                const pkgMatch = value.match(
+                    /^[-*]?\s*packages\/([0-9a-f-]{36})/i
+                );
+                if (pkgMatch) {
+                    if (currentPackage) packages.push(currentPackage);
                     currentPackage = {
-                        packageID: classified.packageID,
+                        packageID: pkgMatch[1],
                         title: 'Homework',
                         dueText: null,
                         dueDate: null,
                         numTaskItems: 0,
                         numTaskItemsDone: 0,
                         numTasks: 0,
-                        numTasksComplete: 0
+                        numTasksComplete: 0,
+                        percent: 0
                     };
-
                     continue;
                 }
-
                 if (!currentPackage) continue;
-
-                if (classified.kind === 'titleDue') {
-
-                    if (!currentPackage.dueText) {
-                        currentPackage.title =
-                            classified.title;
-                        currentPackage.dueText =
-                            classified.dueText;
-                        currentPackage.dueDate =
-                            this.parseDueText(
-                                classified.dueText
-                            );
-                    }
-                    continue;
-                }
-
-                if (classified.kind === 'titleOnly') {
-
-                    if (
-                        currentPackage.title ===
-                            'Homework' &&
-                        !currentPackage.dueText
-                    ) {
-                        currentPackage.title =
-                            classified.title;
-                    }
-                    continue;
-                }
-            }
-
-            if (currentPackage) {
-                packages.push(currentPackage);
-            }
-        }
-
-        // Log the first few packages' raw varints so we can map
-        // field numbers → numTaskItems / numTasksComplete etc.
-        for (const pkg of packages.slice(0, 5)) {
-            if (pkg._rawFields && pkg._rawFields.length) {
-                console.log(
-                    `[Sparx][RAW] package ${pkg.packageID} varints:`,
-                    JSON.stringify(pkg._rawFields)
+                const dueMatch = value.match(
+                    /^[^A-Za-z0-9]*#?\s*(.+?)\s+due\s+(.+?)\s*$/i
                 );
+                if (dueMatch && !currentPackage.dueText) {
+                    currentPackage.title =
+                        dueMatch[1].replace(/^[^A-Za-z0-9]+/, '').trim() ||
+                        'Homework';
+                    currentPackage.dueText = dueMatch[2].trim();
+                    currentPackage.dueDate = this.parseDueText(
+                        currentPackage.dueText
+                    );
+                }
             }
+            if (currentPackage) packages.push(currentPackage);
         }
 
+        // Deduplicate
         const uniquePackages = [];
         const seen = new Set();
-
         for (const pkg of packages) {
             if (!pkg.packageID) continue;
             if (seen.has(pkg.packageID)) continue;
             seen.add(pkg.packageID);
-            // strip internal debug field before returning
-            delete pkg._rawFields;
             uniquePackages.push(pkg);
         }
 
         /*
-         * Sort so packages WITHOUT a parsed due date come first.
+         * Latest homeworks only.
          *
-         * The response contains ~58 packages but only a handful
-         * carry a rendered "#<Title> due <date>" string. The
-         * rest render as bare "Homework" with no due-date text —
-         * which is exactly what the app shows for the current
-         * and recent homeworks. Those go to the TOP of the list
-         * so the slice(0, 25) cap keeps them.
-         *
-         * Packages that do carry a parsed due date are sorted
-         * ascending after that (soonest-first, and because of the
-         * year-roll-forward in parseDueText, they are all future
-         * dated).
+         * Filter:
+         *  - type homework (or unknown type)
+         *  - has a due date
+         *  - due within [now - 14d, now + 60d]
+         * Sort soonest-first. Cap at 25.
          */
-        const sortedPackages = uniquePackages.sort(
-            (a, b) => {
+        const now = Date.now();
+        const windowStart = now - 14 * 24 * 60 * 60 * 1000;
+        const windowEnd = now + 60 * 24 * 60 * 60 * 1000;
 
-                const aHas = Boolean(a.dueDate);
-                const bHas = Boolean(b.dueDate);
-
-                if (aHas !== bHas) {
-                    return aHas ? 1 : -1;
-                }
-
-                if (!aHas && !bHas) {
-                    return String(a.packageID).localeCompare(
-                        String(b.packageID)
-                    );
-                }
-
-                return (
-                    a.dueDate.getTime() -
-                    b.dueDate.getTime()
-                );
+        const inWindow = uniquePackages.filter((p) => {
+            if (
+                p.packageType &&
+                p.packageType !== 'homework' &&
+                p.packageType !== 'onboarding'
+            ) {
+                return false;
             }
+            if (!p.dueDate) return false;
+            const t = p.dueDate.getTime();
+            return t >= windowStart && t <= windowEnd;
+        });
+
+        const sorted = inWindow.sort(
+            (a, b) => a.dueDate.getTime() - b.dueDate.getTime()
         );
 
-        const trimmed = sortedPackages.slice(0, 25);
+        const trimmed = sorted.slice(0, 25);
 
         console.log(
             '[Sparx] Modern packages found:',
             uniquePackages.length,
+            'in-window:',
+            inWindow.length,
             'trimmed:',
             trimmed.length
         );
 
         console.log(
             '[Sparx] Modern packages sample:',
-            JSON.stringify(
-                trimmed.slice(0, 25),
-                null,
-                2
-            )
+            JSON.stringify(trimmed.slice(0, 10), null, 2)
         );
 
-        return {
-            packages: trimmed,
-            tasks: [],
-            taskItems: []
-        };
+        return { packages: trimmed, tasks: [], taskItems: [] };
     }
 
     parseDueText(text) {
-
         if (!text) return null;
-
-        const cleaned =
-            String(text)
-                .replace(
-                    /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+/i,
-                    ''
-                )
-                .trim();
-
+        const cleaned = String(text)
+            .replace(
+                /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+/i,
+                ''
+            )
+            .trim();
         const monthMap = {
-            jan: 0, january: 0,
-            feb: 1, february: 1,
-            mar: 2, march: 2,
-            apr: 3, april: 3,
-            may: 4,
-            jun: 5, june: 5,
-            jul: 6, july: 6,
-            aug: 7, august: 7,
-            sep: 8, sept: 8, september: 8,
-            oct: 9, october: 9,
-            nov: 10, november: 10,
+            jan: 0, january: 0, feb: 1, february: 1,
+            mar: 2, march: 2, apr: 3, april: 3,
+            may: 4, jun: 5, june: 5, jul: 6, july: 6,
+            aug: 7, august: 7, sep: 8, sept: 8, september: 8,
+            oct: 9, october: 9, nov: 10, november: 10,
             dec: 11, december: 11
         };
-
         const m = cleaned.match(
             /^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s*(.*)?$/i
         );
-
         if (!m) return null;
-
         const day = parseInt(m[1], 10);
-        const monthName =
-            String(m[2] || '').toLowerCase();
-        const month = monthMap[monthName];
+        const month = monthMap[String(m[2] || '').toLowerCase()];
         if (month === undefined) return null;
-
-        let hour = 0;
-        let minute = 0;
-
+        let hour = 0, minute = 0;
         const tail = (m[3] || '').trim();
         const timeMatch = tail.match(
             /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i
         );
-
         if (timeMatch) {
             hour = parseInt(timeMatch[1], 10);
-            minute = timeMatch[2]
-                ? parseInt(timeMatch[2], 10)
-                : 0;
+            minute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
             const ampm = (timeMatch[3] || '').toLowerCase();
             if (ampm === 'pm' && hour < 12) hour += 12;
             if (ampm === 'am' && hour === 12) hour = 0;
         }
-
         const now = new Date();
-        const currentYear = now.getFullYear();
-
-        let candidate = new Date(
-            currentYear,
-            month,
-            day,
-            hour,
-            minute,
-            0,
-            0
-        );
-
-        if (
-            Number.isNaN(candidate.getTime())
-        ) {
-            return null;
+        const year = now.getFullYear();
+        let candidate = new Date(year, month, day, hour, minute, 0, 0);
+        if (Number.isNaN(candidate.getTime())) return null;
+        if (candidate.getTime() < now.getTime()) {
+            candidate = new Date(year + 1, month, day, hour, minute, 0, 0);
         }
-
-        if (
-            candidate.getTime() < now.getTime()
-        ) {
-            candidate = new Date(
-                currentYear + 1,
-                month,
-                day,
-                hour,
-                minute,
-                0,
-                0
-            );
-        }
-
-        return Number.isNaN(candidate.getTime())
-            ? null
-            : candidate;
+        return Number.isNaN(candidate.getTime()) ? null : candidate;
     }
 
-    async getTasksItems(
-        packageID,
-        taskIndex
-    ) {
-
+    async getTasksItems(packageID, taskIndex) {
         const inputObject = {
-
-            includeAllActivePackages:
-                false,
-
-            getPackages:
-                false,
-
-            getTasks:
-                false,
-
-            getTaskItems:
-                true,
-
+            includeAllActivePackages: false,
+            getPackages: false,
+            getTasks: false,
+            getTaskItems: true,
             packageID,
-
             taskIndex,
-
-            taskItemIndex:
-                0
+            taskItemIndex: 0
         };
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'PackageDataRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return [];
-        }
-
-        const result =
-            await this.decodeStuff(
-                response.data,
-                'PackageDataResponse'
-            );
-
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'PackageDataRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
+            fullMessage
+        );
+        if (!response?.data) return [];
+        const result = await this.decodeStuff(
+            response.data,
+            'PackageDataResponse'
+        );
         return result?.taskItems || [];
     }
 
-    async getTasks(
-        packageID
-    ) {
-
+    async getTasks(packageID) {
         const inputObject = {
-
-            includeAllActivePackages:
-                false,
-
-            getPackages:
-                true,
-
-            getTasks:
-                true,
-
-            getTaskItems:
-                false,
-
+            includeAllActivePackages: false,
+            getPackages: true,
+            getTasks: true,
+            getTaskItems: false,
             packageID,
-
-            taskIndex:
-                0,
-
-            taskItemIndex:
-                0
+            taskIndex: 0,
+            taskItemIndex: 0
         };
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'PackageDataRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return {
-                packages: [],
-                tasks: [],
-                taskItems: []
-            };
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'PackageDataRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
+            fullMessage
+        );
+        if (!response?.data) {
+            return { packages: [], tasks: [], taskItems: [] };
         }
-
         return await this.decodeStuff(
             response.data,
             'PackageDataResponse'
         );
     }
 
-    async getPackageData(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'PackageDataRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
+    async getPackageData(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'PackageDataRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
+            fullMessage
+        );
+        if (!response?.data) return null;
         return await this.decodeStuff(
             response.data,
             'PackageDataResponse'
         );
     }
 
-    async getActivity(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'GetActivityRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetActivity',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
-        return await this.decodeStuff(
-            response.data,
-            'Result'
+    async getActivity(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'GetActivityRequest'
         );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetActivity',
+            fullMessage
+        );
+        if (!response?.data) return null;
+        return await this.decodeStuff(response.data, 'Result');
     }
 
-    async getPackagesIndependantLearning(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'GetPackagesForObjectivesRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetPackagesForObjectives',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
+    async getPackagesIndependantLearning(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'GetPackagesForObjectivesRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetPackagesForObjectives',
+            fullMessage
+        );
+        if (!response?.data) return null;
         return await this.decodeStuff(
             response.data,
             'GetPackagesForObjectivesResponse'
         );
     }
 
-    async getActivePackages(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'GetActivePackagesRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetActivePackages',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
+    async getActivePackages(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'GetActivePackagesRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.revision.v1.Revision/GetActivePackages',
+            fullMessage
+        );
+        if (!response?.data) return null;
         return await this.decodeStuff(
             response.data,
             'GetActivePackagesResponse'
         );
     }
 
-    async listTopicSummariesRequest(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'ListTopicSummariesRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.content.summaries.v1.TopicSummaries/ListTopicSummaries',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
+    async listTopicSummariesRequest(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'ListTopicSummariesRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.content.summaries.v1.TopicSummaries/ListTopicSummaries',
+            fullMessage
+        );
+        if (!response?.data) return null;
         return await this.decodeStuff(
             response.data,
             'ListTopicSummariesResponse'
         );
     }
 
-    async listCurriculumSummaries(
-        inputObject
-    ) {
-
-        const fullMessage =
-            await this.encodeStuff(
-                inputObject,
-                'ListCurriculumSummariesRequest'
-            );
-
-        const response =
-            await this.send(
-                'https://api.sparx-learning.com/sparx.content.summaries.v1.CurriculumSummaries/ListCurriculumSummaries',
-                fullMessage
-            );
-
-        if (
-            !response?.data
-        ) {
-
-            return null;
-        }
-
+    async listCurriculumSummaries(inputObject) {
+        const fullMessage = await this.encodeStuff(
+            inputObject,
+            'ListCurriculumSummariesRequest'
+        );
+        const response = await this.send(
+            'https://api.sparx-learning.com/sparx.content.summaries.v1.CurriculumSummaries/ListCurriculumSummaries',
+            fullMessage
+        );
+        if (!response?.data) return null;
         return await this.decodeStuff(
             response.data,
             'ListCurriculumSummariesResponse'
