@@ -226,7 +226,7 @@ class progressTracker {
             this.getTotalPages();
 
         this.embed.setDescription(
-`### 📚 Educake Progress
+`### 📚 Sparx Maths Progress
 
 ${description}
 
@@ -259,11 +259,6 @@ ${this.getHomeworkText()}`
         this.currentHomeworkIndex =
             index;
 
-        /*
-         * Keep the homework progress
-         * synced with the real question
-         * currently being processed.
-         */
         if (
             this.homeworksProgress[index]
         ) {
@@ -397,13 +392,13 @@ ${this.getHomeworkText()}`
         this.currentHomeworkIndex = -1;
 
         this.embed.setTitle(
-            '📚 Educake Autocompleter'
+            '📚 Sparx Maths Autocompleter'
         );
 
         this.embed.setDescription(
 `### 🟢 Starting
 
-Preparing your Educake session...
+Preparing your Sparx Maths session...
 
 ### 📖 Homeworks
 Page **1/${this.getTotalPages()}**
