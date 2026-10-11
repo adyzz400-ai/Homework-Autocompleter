@@ -907,8 +907,8 @@ class SparxMaths extends SparxBase {
 
     async getTasks(packageID) {
         const inputObject = {
-            includeAllActivePackages: false,
-            getPackages: true,
+            includeAllActivePackages: true,
+            getPackages: false,
             getTasks: true,
             getTaskItems: false,
             packageID: `packages/${packageID}`,
