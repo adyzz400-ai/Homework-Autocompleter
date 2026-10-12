@@ -736,9 +736,9 @@ function attachNetworkSniffer(page, addLog) {
 
         // ----------------------------------------------------
         // FULL DUMP of GetCurrentSession. Fires on every page
-        // load; we now know it's the session + feature-flag
-        // envelope, not the task source — kept here so future
-        // debugging has the body without another code change.
+        // load; session + feature-flag envelope, not the task
+        // source. Kept here so future debugging has the body
+        // without another code change.
         // ----------------------------------------------------
         if (isGetCurrentSession) {
           const b64 = body.toString('base64');
@@ -1658,8 +1658,12 @@ async function getCookies(
         // on the wrapper is ignored by React's synthetic event
         // system. A real mouse event dispatched at the card's
         // on-screen coordinates triggers the route transition.
-        // Scored candidate selection picks the innermost small
-        // clickable node, not the outer wrapper container.
+        //
+        // Sidebar nav icons were being picked up by the previous
+        // locator — they are BUTTON nodes at x < 200, small and
+        // clickable. This locator excludes the sidebar by x-position
+        // and scores candidates by content features (homework + due
+        // + date + percent) so the actual card wins.
         // ======================================================
 
         try {
@@ -1704,7 +1708,9 @@ async function getCookies(
                   x: Math.round(r.x + r.width / 2),
                   y: Math.round(r.y + r.height / 2),
                   w: Math.round(r.width),
-                  h: Math.round(r.height)
+                  h: Math.round(r.height),
+                  left: Math.round(r.x),
+                  top: Math.round(r.y)
                 };
               }
 
@@ -1714,45 +1720,53 @@ async function getCookies(
               for (const n of all) {
                 if (!visible(n)) continue;
                 const r = n.getBoundingClientRect();
-                if (r.width < 100 || r.width > 700) continue;
-                if (r.height < 60 || r.height > 320) continue;
 
-                const attrs = n.getAttributeNames?.() || [];
-                let hasUuid = false;
-                for (const k of attrs) {
-                  const v = n.getAttribute(k);
-                  if (v && v.includes(uuid)) { hasUuid = true; break; }
-                }
+                // exclude left sidebar: sidebar rail is ~112px at x=0-112.
+                if (r.x < 200) continue;
+
+                // card-shape window: big enough for a card, small
+                // enough to skip the whole content pane.
+                if (r.width < 200 || r.width > 900) continue;
+                if (r.height < 100 || r.height > 400) continue;
 
                 const text = (n.innerText || '').trim();
-                const hasDue = /\bdue\b/i.test(text) && text.length < 300;
-                const clickable = isClickable(n);
+                if (!text) continue;
+                if (text.length > 500) continue;
+
+                const hasHomework = /\bhomework\b/i.test(text);
+                const hasDue = /\bdue\b/i.test(text);
+                const hasDate = /\b(\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)|mon|tue|wed|thu|fri|sat|sun)\b/i.test(text);
+                const hasPercent = /\d+\s*%/.test(text);
 
                 let score = 0;
-                if (hasUuid) score += 1000;
-                if (clickable) score += 100;
-                if (hasDue) score += 10;
-                score += Math.min(500, r.width * r.height / 1000);
-                if (r.width > 550) score -= 200;
+                if (hasHomework) score += 500;
+                if (hasDue) score += 400;
+                if (hasDate) score += 200;
+                if (hasPercent) score += 100;
+                if (isClickable(n)) score += 50;
 
-                if (score > 0) {
+                score += Math.min(300, r.width * r.height / 2000);
+
+                if (score >= 500) {
                   candidates.push({
                     score,
                     tag: n.tagName,
-                    hasUuid,
-                    clickable,
+                    hasHomework,
                     hasDue,
+                    hasDate,
+                    hasPercent,
+                    clickable: isClickable(n),
                     box: boxOf(n),
-                    textHead: text.slice(0, 80)
+                    textHead: text.slice(0, 120)
                   });
                 }
               }
 
               candidates.sort((a, b) => b.score - a.score);
-              return {
-                top: candidates[0] || null,
-                top3: candidates.slice(0, 3)
-              };
+
+              const top = candidates.slice(0, 8);
+
+              return { top: top[0] || null, top8: top };
             }, firstPackageId);
 
           addLog(
@@ -1768,7 +1782,7 @@ async function getCookies(
             await page.mouse.click(chosen.box.x, chosen.box.y);
 
             addLog(
-              `[Sparx Detail] mouse click at ${chosen.box.x},${chosen.box.y} (tag=${chosen.tag} w=${chosen.box.w} h=${chosen.box.h} uuid=${chosen.hasUuid} clickable=${chosen.clickable})`
+              `[Sparx Detail] mouse click at ${chosen.box.x},${chosen.box.y} (tag=${chosen.tag} w=${chosen.box.w} h=${chosen.box.h} score=${chosen.score})`
             );
 
             await delay(8000);
