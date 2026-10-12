@@ -734,12 +734,6 @@ function attachNetworkSniffer(page, addLog) {
           );
         }
 
-        // ----------------------------------------------------
-        // FULL DUMP of GetCurrentSession. Fires on every page
-        // load; session + feature-flag envelope, not the task
-        // source. Kept here so future debugging has the body
-        // without another code change.
-        // ----------------------------------------------------
         if (isGetCurrentSession) {
           const b64 = body.toString('base64');
           const hexHead =
@@ -1655,15 +1649,15 @@ async function getCookies(
         // ENTER THE PACKAGE VIA REAL MOUSE CLICK
         //
         // The homework card is a React node. Programmatic .click()
-        // on the wrapper is ignored by React's synthetic event
-        // system. A real mouse event dispatched at the card's
-        // on-screen coordinates triggers the route transition.
+        // is ignored by React's synthetic event system. A real
+        // mouse event at the card's coordinates triggers the
+        // route transition.
         //
-        // Sidebar nav icons were being picked up by the previous
-        // locator — they are BUTTON nodes at x < 200, small and
-        // clickable. This locator excludes the sidebar by x-position
-        // and scores candidates by content features (homework + due
-        // + date + percent) so the actual card wins.
+        // CRITICAL: accept the cookie consent banner FIRST — the
+        // banner is a full-screen overlay that blocks every
+        // element underneath it. Without dismissing it, the card
+        // locator returns zero candidates (previous run proved
+        // this: bodyHead was the cookie dialog text).
         // ======================================================
 
         try {
@@ -1681,6 +1675,87 @@ async function getCookies(
           );
           await delay(4000);
 
+          // --------------------------------------------------
+          // 1. Dismiss the cookie banner. Try by text first
+          //    (ACCEPT ALL / Accept all / Accept), then by the
+          //    cookie-script wrapper id.
+          // --------------------------------------------------
+          const cookieResult = await page.evaluate(() => {
+            function visible(el) {
+              const r = el.getBoundingClientRect();
+              if (r.width < 3 || r.height < 3) return false;
+              const s = getComputedStyle(el);
+              if (s.display === 'none' || s.visibility === 'hidden') return false;
+              if (parseFloat(s.opacity || '1') === 0) return false;
+              return true;
+            }
+
+            const wanted = [
+              /^accept all$/i,
+              /^accept$/i,
+              /^accept cookies$/i,
+              /^i accept$/i,
+              /^ok(ay)?$/i,
+              /^got it$/i
+            ];
+
+            const nodes = [
+              ...document.querySelectorAll(
+                'button, a, [role="button"], input[type="button"], input[type="submit"]'
+              )
+            ];
+
+            for (const n of nodes) {
+              if (!visible(n)) continue;
+              const t = (n.innerText || n.value || '').trim();
+              if (wanted.some(re => re.test(t))) {
+                n.click();
+                return { hit: 'text', text: t };
+              }
+            }
+
+            // fallback: cookie-script wrapper has known ids
+            const ids = [
+              'cookiescript_accept',
+              'cookiescript_accept_all',
+              'CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll'
+            ];
+            for (const id of ids) {
+              const el = document.getElementById(id);
+              if (el && visible(el)) {
+                el.click();
+                return { hit: 'id', id };
+              }
+            }
+
+            // last resort: nuke the wrapper
+            const wrap = document.getElementById('cookiescript_injected_wrapper');
+            if (wrap) {
+              wrap.remove();
+              return { hit: 'removed-wrapper' };
+            }
+
+            return { hit: null };
+          });
+
+          addLog(
+            `[Sparx Detail] cookie dismiss: ${JSON.stringify(cookieResult)}`
+          );
+
+          await delay(1500);
+
+          // sanity: is the banner actually gone?
+          const bannerGone = await page.evaluate(() => {
+            const wrap = document.getElementById('cookiescript_injected_wrapper');
+            if (!wrap) return true;
+            const r = wrap.getBoundingClientRect();
+            return r.width < 10 || r.height < 10;
+          });
+          addLog(`[Sparx Detail] cookie banner gone? ${bannerGone}`);
+
+          // --------------------------------------------------
+          // 2. Now find the actual homework card.
+          // --------------------------------------------------
           const cardBox =
             await page.evaluate(uuid => {
               function visible(el) {
@@ -1721,11 +1796,7 @@ async function getCookies(
                 if (!visible(n)) continue;
                 const r = n.getBoundingClientRect();
 
-                // exclude left sidebar: sidebar rail is ~112px at x=0-112.
                 if (r.x < 200) continue;
-
-                // card-shape window: big enough for a card, small
-                // enough to skip the whole content pane.
                 if (r.width < 200 || r.width > 900) continue;
                 if (r.height < 100 || r.height > 400) continue;
 
@@ -1744,7 +1815,6 @@ async function getCookies(
                 if (hasDate) score += 200;
                 if (hasPercent) score += 100;
                 if (isClickable(n)) score += 50;
-
                 score += Math.min(300, r.width * r.height / 2000);
 
                 if (score >= 500) {
@@ -1763,9 +1833,7 @@ async function getCookies(
               }
 
               candidates.sort((a, b) => b.score - a.score);
-
               const top = candidates.slice(0, 8);
-
               return { top: top[0] || null, top8: top };
             }, firstPackageId);
 
@@ -1835,7 +1903,9 @@ async function getCookies(
 
             const state = await page.evaluate(() => ({
               url: location.href,
-              bodyHead: (document.body.innerText || '').slice(0, 800)
+              bodyHead: (document.body.innerText || '').slice(0, 800),
+              cookieWrapperPresent:
+                !!document.getElementById('cookiescript_injected_wrapper')
             }));
 
             addLog(
