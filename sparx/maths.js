@@ -878,57 +878,332 @@ for (const f of rawFields) {
         return Number.isNaN(candidate.getTime()) ? null : candidate;
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  gRPC-web wire encoding for GetPackageData (PackageDataRequest)    */
+    /*                                                                    */
+    /*  Field numbers verified against the modern Sparx client bundle:   */
+    /*  sparxweb.PackageDataRequest {                                    */
+    /*    bool   include_all_active_packages = 2;                        */
+    /*    bool   get_packages               = 3;                         */
+    /*    bool   get_tasks                  = 4;                         */
+    /*    bool   get_task_items             = 5;                         */
+    /*    string package_id                 = 6;                         */
+    /*    int64  task_index                 = 7;                         */
+    /*    int64  task_item_index            = 8;                         */
+    /*  }                                                                 */
+    /*                                                                    */
+    /*  Response shape (sparxweb.PackageData):                            */
+    /*    1 = repeated Package                                            */
+    /*    2 = repeated Task                                               */
+    /*    3 = repeated TaskItem                                           */
+    /* ------------------------------------------------------------------ */
+
+    encodeVarintBytes(n) {
+        const bytes = [];
+        let v = BigInt(n);
+        while (v > 0x7fn) {
+            bytes.push(Number(v & 0x7fn) | 0x80);
+            v >>= 7n;
+        }
+        bytes.push(Number(v));
+        return Buffer.from(bytes);
+    }
+
+    encodeTagBytes(fieldNumber, wireType) {
+        return this.encodeVarintBytes(
+            (BigInt(fieldNumber) << 3n) | BigInt(wireType)
+        );
+    }
+
+    encodeBoolFieldBytes(fieldNumber, value) {
+        if (!value) return Buffer.alloc(0);
+        return Buffer.concat([
+            this.encodeTagBytes(fieldNumber, 0),
+            Buffer.from([0x01])
+        ]);
+    }
+
+    encodeStringFieldBytes(fieldNumber, value) {
+        if (!value) return Buffer.alloc(0);
+        const s = Buffer.from(String(value), 'utf8');
+        return Buffer.concat([
+            this.encodeTagBytes(fieldNumber, 2),
+            this.encodeVarintBytes(s.length),
+            s
+        ]);
+    }
+
+    encodeInt64FieldBytes(fieldNumber, value) {
+        if (!value) return Buffer.alloc(0);
+        return Buffer.concat([
+            this.encodeTagBytes(fieldNumber, 0),
+            this.encodeVarintBytes(value)
+        ]);
+    }
+
+    buildPackageDataRequestFrame({
+        includeAllActivePackages = false,
+        getPackages              = false,
+        getTasks                 = false,
+        getTaskItems             = false,
+        packageID                = '',
+        taskIndex                = 0,
+        taskItemIndex            = 0
+    }) {
+        const parts = [
+            this.encodeBoolFieldBytes(2, includeAllActivePackages),
+            this.encodeBoolFieldBytes(3, getPackages),
+            this.encodeBoolFieldBytes(4, getTasks),
+            this.encodeBoolFieldBytes(5, getTaskItems),
+            this.encodeStringFieldBytes(6, packageID),
+            this.encodeInt64FieldBytes(7, taskIndex),
+            this.encodeInt64FieldBytes(8, taskItemIndex)
+        ].filter(b => b.length > 0);
+
+        const body = Buffer.concat(parts);
+
+        // gRPC-web frame: 1 byte compression flag, 4 bytes big-endian length
+        const header = Buffer.alloc(5);
+        header.writeUInt8(0, 0);
+        header.writeUInt32BE(body.length, 1);
+        return Buffer.concat([header, body]);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Decode a GetPackageData response into { packages, tasks,         */
+    /*  taskItems } using the field numbers from the bundle.             */
+    /* ------------------------------------------------------------------ */
+
+    packageDataFromRawWalk(topFields) {
+        const out = { packages: [], tasks: [], taskItems: [] };
+
+        for (const top of topFields) {
+            if (!top.nested) continue;
+
+            if (top.fieldNumber === 1) {
+                const pkg = {
+                    packageID:          null,
+                    title:              null,
+                    packageType:        null,
+                    status:             null,
+                    numTasks:           0,
+                    numTaskItems:       0,
+                    numTaskItemsDone:   0,
+                    numTasksComplete:   0,
+                    numTasksInProgress: 0,
+                    hasBeenComplete:    false,
+                    xPoints:            0,
+                    taskIds:            [],
+                    labels:             {},
+                    percent:            0
+                };
+                for (const f of top.nested) {
+                    if (f.fieldNumber === 1 && f.string) {
+                        const m = f.string.match(/packages\/([0-9a-f-]{36})/i);
+                        if (m) pkg.packageID = m[1];
+                    } else if (f.fieldNumber === 4 && f.string) {
+                        pkg.title = f.string;
+                    } else if (f.fieldNumber === 5 && f.string) {
+                        pkg.packageType = f.string;
+                    } else if (f.fieldNumber === 6 && f.wireType === 0) {
+                        pkg.numTasks = f.value;
+                    } else if (f.fieldNumber === 7 && f.wireType === 0) {
+                        pkg.numTaskItems = f.value;
+                    } else if (f.fieldNumber === 8 && f.wireType === 0) {
+                        pkg.numTaskItemsDone = f.value;
+                    } else if (f.fieldNumber === 9 && f.wireType === 0) {
+                        pkg.hasBeenComplete = !!f.value;
+                    } else if (f.fieldNumber === 10 && f.wireType === 0) {
+                        pkg.numTasksComplete = f.value;
+                    } else if (f.fieldNumber === 11 && f.wireType === 0) {
+                        pkg.numTasksInProgress = f.value;
+                    } else if (f.fieldNumber === 12 && f.string) {
+                        pkg.status = f.string;
+                    } else if (f.fieldNumber === 13 && f.wireType === 0) {
+                        pkg.xPoints = f.value;
+                    } else if (f.fieldNumber === 15 && f.string) {
+                        const m = f.string.match(/tasks\/([0-9a-f-]{36})/i);
+                        if (m) pkg.taskIds.push(m[1]);
+                    } else if (f.fieldNumber === 14 && f.nested) {
+                        // Completion { map<string,double> progress }
+                        for (const s of f.nested) {
+                            if (s.fieldNumber === 3 && s.nested) {
+                                let key = null, val = null;
+                                for (const u of s.nested) {
+                                    if (u.fieldNumber === 1 && u.string) key = u.string;
+                                    if (u.fieldNumber === 2 &&
+                                        (u.wireType === 1 || u.wireType === 5)) {
+                                        val = u.double ?? null;
+                                    }
+                                }
+                                if (key === 'C' && val != null) {
+                                    pkg.percent = val;
+                                }
+                            }
+                        }
+                    }
+                }
+                out.packages.push(pkg);
+            }
+
+            if (top.fieldNumber === 2) {
+                const task = {
+                    packageID:            null,
+                    taskIndex:            0,
+                    title:                null,
+                    taskType:             null,
+                    numTaskItems:         0,
+                    numTaskItemsDone:     0,
+                    numTaskItemsWrong:    0,
+                    hasBeenComplete:      false,
+                    doNotWAC:             false,
+                    completion:           null,
+                    completionStore:      null,
+                    labels:               {},
+                    fixedQuestionDelivery: false,
+                    secondChanceDelivery:  false
+                };
+                for (const f of top.nested) {
+                    if (f.fieldNumber === 1 && f.string) {
+                        const m = f.string.match(/packages\/([0-9a-f-]{36})/i);
+                        if (m) task.packageID = m[1];
+                    } else if (f.fieldNumber === 2 && f.wireType === 0) {
+                        task.taskIndex = f.value;
+                    } else if (f.fieldNumber === 3 && f.string) {
+                        task.title = f.string;
+                    } else if (f.fieldNumber === 4 && f.string) {
+                        task.taskType = f.string;
+                    } else if (f.fieldNumber === 6 && f.wireType === 0) {
+                        task.numTaskItems = f.value;
+                    } else if (f.fieldNumber === 7 && f.wireType === 0) {
+                        task.numTaskItemsDone = f.value;
+                    } else if (f.fieldNumber === 8 && f.wireType === 0) {
+                        task.hasBeenComplete = !!f.value;
+                    } else if (f.fieldNumber === 9 && f.wireType === 0) {
+                        task.numTaskItemsWrong = f.value;
+                    } else if (f.fieldNumber === 10 && f.wireType === 0) {
+                        task.doNotWAC = !!f.value;
+                    } else if (f.fieldNumber === 11 && f.nested) {
+                        task.completion = f.nested;
+                    } else if (f.fieldNumber === 12 && f.string) {
+                        task.completionStore = f.string;
+                    } else if (f.fieldNumber === 14 && f.wireType === 0) {
+                        task.fixedQuestionDelivery = !!f.value;
+                    } else if (f.fieldNumber === 15 && f.wireType === 0) {
+                        task.secondChanceDelivery = !!f.value;
+                    }
+                }
+                out.tasks.push(task);
+            }
+
+            if (top.fieldNumber === 3) {
+                const item = {
+                    packageID:          null,
+                    taskIndex:          0,
+                    taskItemIndex:      0,
+                    status:             0,
+                    numCorrectAnswers:  0,
+                    numWrongAnswers:    0,
+                    numVideoWatched:    0,
+                    lastAnsweredAt:     null,
+                    name:               null,
+                    useStatus:          false,
+                    numSkillQuestions:  0,
+                    swappedInForIndex:  null,
+                    videoPlayed:        0,
+                    videoOpenDuration:  0
+                };
+                for (const f of top.nested) {
+                    if (f.fieldNumber === 1 && f.string) {
+                        const m = f.string.match(/packages\/([0-9a-f-]{36})/i);
+                        if (m) item.packageID = m[1];
+                    } else if (f.fieldNumber === 2 && f.wireType === 0) {
+                        item.taskIndex = f.value;
+                    } else if (f.fieldNumber === 3 && f.wireType === 0) {
+                        item.taskItemIndex = f.value;
+                    } else if (f.fieldNumber === 4 && f.wireType === 0) {
+                        item.status = f.value;
+                    } else if (f.fieldNumber === 5 && f.wireType === 0) {
+                        item.numCorrectAnswers = f.value;
+                    } else if (f.fieldNumber === 6 && f.wireType === 0) {
+                        item.numWrongAnswers = f.value;
+                    } else if (f.fieldNumber === 7 && f.wireType === 0) {
+                        item.numVideoWatched = f.value;
+                    } else if (f.fieldNumber === 9 && f.string) {
+                        item.name = f.string;
+                    } else if (f.fieldNumber === 15 && f.wireType === 0) {
+                        item.useStatus = !!f.value;
+                    } else if (f.fieldNumber === 19 && f.wireType === 0) {
+                        item.numSkillQuestions = f.value;
+                    } else if (f.fieldNumber === 20 && f.wireType === 0) {
+                        item.swappedInForIndex = f.value;
+                    } else if (f.fieldNumber === 21 && f.wireType === 0) {
+                        item.videoPlayed = f.value;
+                    } else if (f.fieldNumber === 22 &&
+                               (f.wireType === 1 || f.wireType === 5)) {
+                        item.videoOpenDuration = f.double ?? 0;
+                    }
+                }
+                out.taskItems.push(item);
+            }
+        }
+
+        return out;
+    }
+
     async getTasksItems(packageID, taskIndex) {
-        const inputObject = {
-            includeAllActivePackages: false,
-            getPackages: false,
-            getTasks: false,
-            getTaskItems: true,
-            packageID: `packages/${packageID}`,
+        const frame = this.buildPackageDataRequestFrame({
+            getTaskItems:  true,
+            packageID:     `packages/${packageID}`,
             taskIndex,
             taskItemIndex: 0
-        };
-        const fullMessage = await this.encodeStuff(
-            inputObject,
-            'PackageDataRequest'
-        );
+        });
+
         const response = await this.send(
             'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-            fullMessage
+            frame
         );
+
         if (!response?.data) return [];
-        const result = await this.decodeStuff(
-            response.data,
-            'PackageDataResponse'
-        );
-        return result?.taskItems || [];
+
+        let payload = response.data;
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+        if (payload.length >= 5 && payload[0] === 0) {
+            const len = payload.readUInt32BE(1);
+            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
+        }
+
+        const raw = this.walkProtobuf(payload);
+        const decoded = this.packageDataFromRawWalk(raw);
+        return decoded.taskItems;
     }
 
     async getTasks(packageID) {
-        const inputObject = {
-            includeAllActivePackages: true,
-            getPackages: false,
-            getTasks: true,
-            getTaskItems: false,
-            packageID: packageID,
-            taskIndex: 0,
+        const frame = this.buildPackageDataRequestFrame({
+            getTasks:      true,
+            packageID:     `packages/${packageID}`,
+            taskIndex:     0,
             taskItemIndex: 0
-        };
-        const fullMessage = await this.encodeStuff(
-            inputObject,
-            'PackageDataRequest'
-        );
+        });
+
         const response = await this.send(
             'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-            fullMessage
+            frame
         );
+
         if (!response?.data) {
             return { packages: [], tasks: [], taskItems: [] };
         }
-        return await this.decodeStuff(
-            response.data,
-            'PackageDataResponse'
-        );
+
+        let payload = response.data;
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+        if (payload.length >= 5 && payload[0] === 0) {
+            const len = payload.readUInt32BE(1);
+            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
+        }
+
+        const raw = this.walkProtobuf(payload);
+        return this.packageDataFromRawWalk(raw);
     }
 
     async getPackageData(inputObject) {
