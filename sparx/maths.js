@@ -697,6 +697,20 @@ class SparxMaths extends SparxBase {
         let rawFields = [];
         try {
             rawFields = this.walkProtobuf(payload);
+            // dump the full nested structure of the first package's field 11 (metadata)
+for (const f of rawFields) {
+    if (f.fieldNumber !== 1 || !f.nested) continue;
+    for (const sub of f.nested) {
+        if (sub.fieldNumber === 11 && sub.nested) {
+            console.log(
+                '[Sparx][META] full field 11:',
+                JSON.stringify(sub, null, 2)
+            );
+            break;
+        }
+    }
+    break;
+}
             console.log(
                 '[Sparx][RAW] top-level fields:',
                 rawFields.length
