@@ -1153,6 +1153,7 @@ for (const f of rawFields) {
 
     async getTasksItems(packageID, taskIndex) {
         const frame = this.buildPackageDataRequestFrame({
+            includeAllActivePackages: true,
             getTaskItems:  true,
             packageID:     `packages/${packageID}`,
             taskIndex,
@@ -1180,6 +1181,7 @@ for (const f of rawFields) {
 
     async getTasks(packageID) {
         const frame = this.buildPackageDataRequestFrame({
+            includeAllActivePackages: true,
             getTasks:      true,
             packageID:     `packages/${packageID}`,
             taskIndex:     0,
