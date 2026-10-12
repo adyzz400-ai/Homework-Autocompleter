@@ -735,11 +735,10 @@ function attachNetworkSniffer(page, addLog) {
         }
 
         // ----------------------------------------------------
-        // FULL DUMP of GetCurrentSession. This endpoint fires on
-        // every page load and returns ~9.6 KB — the only endpoint
-        // in the modern app's traffic that plausibly carries the
-        // active package + its task list. Dump the whole body so
-        // we can decode it offline.
+        // FULL DUMP of GetCurrentSession. Fires on every page
+        // load; we now know it's the session + feature-flag
+        // envelope, not the task source — kept here so future
+        // debugging has the body without another code change.
         // ----------------------------------------------------
         if (isGetCurrentSession) {
           const b64 = body.toString('base64');
@@ -753,7 +752,6 @@ function attachNetworkSniffer(page, addLog) {
             `[Sparx SESSION] hex-head=${hexHead}`
           );
 
-          // chunk the base64 so no log line explodes
           for (
             let i = 0;
             i < b64.length;
@@ -1654,12 +1652,12 @@ async function getCookies(
 
 
         // ======================================================
-        // ENTER THE PACKAGE VIA SPA CLICK, NOT DEEP-LINK NAV
+        // ENTER THE PACKAGE VIA REAL MOUSE CLICK
         //
-        // A cold page.goto() on /student/homework/<uuid> renders a
-        // "refreshing the page" recovery dialog — the SPA can't
-        // boot into that deep route without the /student state.
-        // So: go to /student, find the homework card, click it.
+        // The homework card is a React node. Programmatic .click()
+        // on the wrapper is ignored by React's synthetic event
+        // system. A real mouse event dispatched at the card's
+        // on-screen coordinates triggers the route transition.
         // ======================================================
 
         try {
@@ -1668,135 +1666,144 @@ async function getCookies(
             '92078a5d-1e9d-4b32-8987-ca6a14b63fcc';
 
           addLog(
-            `[Sparx Detail] Entering package via SPA: ${firstPackageId}`
+            `[Sparx Detail] Finding homework card for ${firstPackageId}`
           );
 
           await page.goto(
             'https://maths.sparx-learning.com/student/homework?pkg_type=homework',
-            { waitUntil: 'domcontentloaded', timeout: 30000 }
+            { waitUntil: 'networkidle2', timeout: 30000 }
           );
           await delay(4000);
 
-          // click the card whose href or any attribute carries the uuid
-          const cardClick =
+          const cardBox =
             await page.evaluate(uuid => {
-              const anchors =
-                [...document.querySelectorAll('a[href]')];
-              const byHref =
-                anchors.find(a => a.href.includes(uuid));
-              if (byHref) {
-                byHref.click();
-                return { hit: 'anchor', href: byHref.href };
+              function bboxFor(el) {
+                const r = el.getBoundingClientRect();
+                if (r.width < 20 || r.height < 20) return null;
+                return {
+                  x: r.x + r.width / 2,
+                  y: r.y + r.height / 2,
+                  w: Math.round(r.width),
+                  h: Math.round(r.height)
+                };
               }
 
-              const all =
-                [...document.querySelectorAll('*')];
-              const byAttr = all.find(n => {
+              // 1. any node with the uuid in any attribute
+              const all = [...document.querySelectorAll('*')];
+              for (const n of all) {
                 const attrs = n.getAttributeNames?.() || [];
-                return attrs.some(k => {
+                for (const k of attrs) {
                   const v = n.getAttribute(k);
-                  return v && v.includes(uuid);
-                });
-              });
-              if (byAttr) {
-                byAttr.click();
-                return { hit: 'attr', tag: byAttr.tagName };
+                  if (v && v.includes(uuid)) {
+                    const b = bboxFor(n);
+                    if (b) return { hit: 'uuid-attr', attr: k, tag: n.tagName, box: b };
+                  }
+                }
               }
 
-              return { hit: null };
+              // 2. anchor href containing uuid
+              for (const a of document.querySelectorAll('a[href]')) {
+                if (a.href.includes(uuid)) {
+                  const b = bboxFor(a);
+                  if (b) return { hit: 'anchor', href: a.href, box: b };
+                }
+              }
+
+              // 3. fallback: first visible card-shaped element with "due"
+              const cards = [...document.querySelectorAll('div,article,li')]
+                .filter(n => {
+                  const t = (n.innerText || '');
+                  return /due/i.test(t) && t.length < 400;
+                });
+              for (const c of cards) {
+                const b = bboxFor(c);
+                if (b) return { hit: 'due-card', tag: c.tagName, box: b };
+              }
+
+              return null;
             }, firstPackageId);
 
           addLog(
-            `[Sparx Detail] card click: ${JSON.stringify(cardClick)}`
+            `[Sparx Detail] card box: ${JSON.stringify(cardBox)}`
           );
 
-          await delay(8000);
+          if (cardBox) {
 
-          addLog(
-            `[Sparx Detail] after card click URL: ${page.url()}`
-          );
+            await page.mouse.move(cardBox.box.x, cardBox.box.y);
+            await delay(150);
+            await page.mouse.click(cardBox.box.x, cardBox.box.y);
 
-          // inspect what the page looks like
-          const pageState =
-            await page.evaluate(() => {
-              const txt =
-                (document.body.innerText || '').slice(0, 800);
-              const hasRefreshModal =
-                /refreshing the page/i.test(txt);
-              const buttons =
-                [...document.querySelectorAll('button, a, [role="button"]')]
-                  .map(b => (b.innerText || '').trim())
-                  .filter(Boolean);
-              return {
-                url: location.href,
-                hasRefreshModal,
-                buttons: buttons.slice(0, 30)
-              };
-            });
-
-          addLog(
-            `[Sparx Detail] page state: ${JSON.stringify(pageState)}`
-          );
-
-          if (pageState.hasRefreshModal) {
-            const refreshed =
-              await page.evaluate(() => {
-                const b =
-                  [...document.querySelectorAll('button')]
-                    .find(x =>
-                      /^refresh$/i.test(
-                        (x.innerText || '').trim()
-                      )
-                    );
-                if (b) { b.click(); return true; }
-                return false;
-              });
             addLog(
-              `[Sparx Detail] refresh clicked: ${refreshed}`
+              `[Sparx Detail] real mouse click at ${cardBox.box.x},${cardBox.box.y}`
             );
+
             await delay(8000);
-          }
 
-          // try the start CTA again now that the SPA booted properly
-          const cta =
-            await page.evaluate(() => {
-              const wanted =
-                /^(start|continue|resume|begin|open|go)\b/i;
-              const nodes =
-                [...document.querySelectorAll(
-                  'button, a, [role="button"]'
-                )];
-              const hit = nodes.find(n => {
-                const t =
-                  (n.innerText || n.textContent || '').trim();
-                return (
-                  wanted.test(t) &&
-                  !n.disabled &&
-                  n.offsetParent !== null
-                );
+            addLog(
+              `[Sparx Detail] after mouse click URL: ${page.url()}`
+            );
+
+            const routeOk =
+              page.url().includes(`/student/homework/${firstPackageId}`);
+            addLog(`[Sparx Detail] route entered package? ${routeOk}`);
+
+            if (routeOk) {
+              const startBox = await page.evaluate(() => {
+                const nodes =
+                  [...document.querySelectorAll('button, a, [role="button"]')];
+                const hit = nodes.find(n => {
+                  const t = (n.innerText || '').trim();
+                  return /^(start|continue|resume|begin)\b/i.test(t) && !n.disabled;
+                });
+                if (!hit) return null;
+                const r = hit.getBoundingClientRect();
+                if (r.width < 10 || r.height < 10) return null;
+                return {
+                  x: r.x + r.width / 2,
+                  y: r.y + r.height / 2,
+                  text: (hit.innerText || '').trim()
+                };
               });
-              if (!hit) return { found: false };
-              hit.click();
-              return {
-                found: true,
-                text: (hit.innerText || '').trim()
-              };
-            });
+              addLog(
+                `[Sparx Detail] start button: ${JSON.stringify(startBox)}`
+              );
+              if (startBox) {
+                await page.mouse.move(startBox.x, startBox.y);
+                await delay(150);
+                await page.mouse.click(startBox.x, startBox.y);
+                addLog(`[Sparx Detail] clicked Start`);
+                await delay(10000);
+                addLog(
+                  `[Sparx Detail] post-start URL: ${page.url()}`
+                );
+              }
+            }
 
-          addLog(
-            `[Sparx Detail] cta: ${JSON.stringify(cta)}`
-          );
+          } else {
 
-          await delay(8000);
+            addLog('[Sparx Detail] no card found; dumping page state');
 
-          addLog(
-            `[Sparx Detail] post-cta settled URL: ${page.url()}`
-          );
+            const state = await page.evaluate(() => ({
+              url: location.href,
+              buttons:
+                [...document.querySelectorAll('button,a,[role=button]')]
+                  .map(b => ({
+                    t: (b.innerText || '').trim().slice(0, 60),
+                    href: b.href || null
+                  }))
+                  .filter(x => x.t),
+              bodyHead: (document.body.innerText || '').slice(0, 600)
+            }));
+
+            addLog(
+              `[Sparx Detail] page state: ${JSON.stringify(state)}`
+            );
+          }
 
         } catch (error) {
 
           addLog(
-            `[Sparx Detail] enter-package failed: ${error.message}`
+            `[Sparx Detail] real-click enter failed: ${error.message}`
           );
 
         }
