@@ -1658,6 +1658,8 @@ async function getCookies(
         // on the wrapper is ignored by React's synthetic event
         // system. A real mouse event dispatched at the card's
         // on-screen coordinates triggers the route transition.
+        // Scored candidate selection picks the innermost small
+        // clickable node, not the outer wrapper container.
         // ======================================================
 
         try {
@@ -1677,64 +1679,96 @@ async function getCookies(
 
           const cardBox =
             await page.evaluate(uuid => {
-              function bboxFor(el) {
+              function visible(el) {
                 const r = el.getBoundingClientRect();
-                if (r.width < 20 || r.height < 20) return null;
+                if (r.width < 5 || r.height < 5) return false;
+                const s = getComputedStyle(el);
+                if (s.display === 'none' || s.visibility === 'hidden') return false;
+                if (parseFloat(s.opacity || '1') === 0) return false;
+                return true;
+              }
+
+              function isClickable(el) {
+                const s = getComputedStyle(el);
+                if (s.cursor === 'pointer') return true;
+                const tag = el.tagName;
+                if (tag === 'A' || tag === 'BUTTON') return true;
+                const role = el.getAttribute('role');
+                if (role === 'button' || role === 'link') return true;
+                return false;
+              }
+
+              function boxOf(el) {
+                const r = el.getBoundingClientRect();
                 return {
-                  x: r.x + r.width / 2,
-                  y: r.y + r.height / 2,
+                  x: Math.round(r.x + r.width / 2),
+                  y: Math.round(r.y + r.height / 2),
                   w: Math.round(r.width),
                   h: Math.round(r.height)
                 };
               }
 
-              // 1. any node with the uuid in any attribute
               const all = [...document.querySelectorAll('*')];
+              const candidates = [];
+
               for (const n of all) {
+                if (!visible(n)) continue;
+                const r = n.getBoundingClientRect();
+                if (r.width < 100 || r.width > 700) continue;
+                if (r.height < 60 || r.height > 320) continue;
+
                 const attrs = n.getAttributeNames?.() || [];
+                let hasUuid = false;
                 for (const k of attrs) {
                   const v = n.getAttribute(k);
-                  if (v && v.includes(uuid)) {
-                    const b = bboxFor(n);
-                    if (b) return { hit: 'uuid-attr', attr: k, tag: n.tagName, box: b };
-                  }
+                  if (v && v.includes(uuid)) { hasUuid = true; break; }
+                }
+
+                const text = (n.innerText || '').trim();
+                const hasDue = /\bdue\b/i.test(text) && text.length < 300;
+                const clickable = isClickable(n);
+
+                let score = 0;
+                if (hasUuid) score += 1000;
+                if (clickable) score += 100;
+                if (hasDue) score += 10;
+                score += Math.min(500, r.width * r.height / 1000);
+                if (r.width > 550) score -= 200;
+
+                if (score > 0) {
+                  candidates.push({
+                    score,
+                    tag: n.tagName,
+                    hasUuid,
+                    clickable,
+                    hasDue,
+                    box: boxOf(n),
+                    textHead: text.slice(0, 80)
+                  });
                 }
               }
 
-              // 2. anchor href containing uuid
-              for (const a of document.querySelectorAll('a[href]')) {
-                if (a.href.includes(uuid)) {
-                  const b = bboxFor(a);
-                  if (b) return { hit: 'anchor', href: a.href, box: b };
-                }
-              }
-
-              // 3. fallback: first visible card-shaped element with "due"
-              const cards = [...document.querySelectorAll('div,article,li')]
-                .filter(n => {
-                  const t = (n.innerText || '');
-                  return /due/i.test(t) && t.length < 400;
-                });
-              for (const c of cards) {
-                const b = bboxFor(c);
-                if (b) return { hit: 'due-card', tag: c.tagName, box: b };
-              }
-
-              return null;
+              candidates.sort((a, b) => b.score - a.score);
+              return {
+                top: candidates[0] || null,
+                top3: candidates.slice(0, 3)
+              };
             }, firstPackageId);
 
           addLog(
-            `[Sparx Detail] card box: ${JSON.stringify(cardBox)}`
+            `[Sparx Detail] card candidates: ${JSON.stringify(cardBox)}`
           );
 
-          if (cardBox) {
+          const chosen = cardBox && cardBox.top;
 
-            await page.mouse.move(cardBox.box.x, cardBox.box.y);
-            await delay(150);
-            await page.mouse.click(cardBox.box.x, cardBox.box.y);
+          if (chosen) {
+
+            await page.mouse.move(chosen.box.x, chosen.box.y);
+            await delay(200);
+            await page.mouse.click(chosen.box.x, chosen.box.y);
 
             addLog(
-              `[Sparx Detail] real mouse click at ${cardBox.box.x},${cardBox.box.y}`
+              `[Sparx Detail] mouse click at ${chosen.box.x},${chosen.box.y} (tag=${chosen.tag} w=${chosen.box.w} h=${chosen.box.h} uuid=${chosen.hasUuid} clickable=${chosen.clickable})`
             );
 
             await delay(8000);
@@ -1753,14 +1787,16 @@ async function getCookies(
                   [...document.querySelectorAll('button, a, [role="button"]')];
                 const hit = nodes.find(n => {
                   const t = (n.innerText || '').trim();
-                  return /^(start|continue|resume|begin)\b/i.test(t) && !n.disabled;
+                  return /^(start|continue|resume|begin)\b/i.test(t)
+                    && !n.disabled
+                    && n.offsetParent !== null;
                 });
                 if (!hit) return null;
                 const r = hit.getBoundingClientRect();
                 if (r.width < 10 || r.height < 10) return null;
                 return {
-                  x: r.x + r.width / 2,
-                  y: r.y + r.height / 2,
+                  x: Math.round(r.x + r.width / 2),
+                  y: Math.round(r.y + r.height / 2),
                   text: (hit.innerText || '').trim()
                 };
               });
@@ -1769,7 +1805,7 @@ async function getCookies(
               );
               if (startBox) {
                 await page.mouse.move(startBox.x, startBox.y);
-                await delay(150);
+                await delay(200);
                 await page.mouse.click(startBox.x, startBox.y);
                 addLog(`[Sparx Detail] clicked Start`);
                 await delay(10000);
@@ -1781,18 +1817,11 @@ async function getCookies(
 
           } else {
 
-            addLog('[Sparx Detail] no card found; dumping page state');
+            addLog('[Sparx Detail] no candidate card found');
 
             const state = await page.evaluate(() => ({
               url: location.href,
-              buttons:
-                [...document.querySelectorAll('button,a,[role=button]')]
-                  .map(b => ({
-                    t: (b.innerText || '').trim().slice(0, 60),
-                    href: b.href || null
-                  }))
-                  .filter(x => x.t),
-              bodyHead: (document.body.innerText || '').slice(0, 600)
+              bodyHead: (document.body.innerText || '').slice(0, 800)
             }));
 
             addLog(
