@@ -469,14 +469,19 @@ function stripGrpcFrame(body) {
   return body;
 }
 
+function isNoiseAsset(url) {
+  return /\.(js|mjs|css|png|jpg|jpeg|svg|gif|webp|woff2?|ico|map|webmanifest|txt|json)(\?|$)/i.test(url)
+    && !/site\.webmanifest/i.test(url);
+}
+
 function attachNetworkSniffer(page, addLog) {
 
   // ----------------------------------------------------------
-  // CATCH-ALL: log every request to sparx's api hosts.
+  // CATCH-ALL: log every request to *.sparx-learning.com
   //
-  // This is the diagnostic that tells us which endpoints the
-  // modern client actually talks to. Once we see that, we can
-  // stop guessing at PackageDataRequest field values.
+  // Drops static assets so the log shows API + page traffic only.
+  // This is how we find the endpoint that actually serves tasks —
+  // GetPackageData is not it.
   // ----------------------------------------------------------
 
   page.on(
@@ -485,26 +490,40 @@ function attachNetworkSniffer(page, addLog) {
       const url =
         request.url();
 
-      if (
-        url.includes(
-          'api.sparx-learning.com'
-        ) ||
-        url.includes(
-          '.sparx-learning.com/'
-        )
-      ) {
-        const method =
-          request.method();
-
-        if (
-          method === 'POST' ||
-          method === 'GET'
-        ) {
-          addLog(
-            `[Sparx SNIFF] ${method} ${url}`
-          );
-        }
+      let host;
+      try {
+        host = new URL(url).hostname;
+      } catch {
+        return;
       }
+
+      const isSparx =
+        host === 'sparx-learning.com' ||
+        host.endsWith('.sparx-learning.com');
+
+      if (!isSparx) return;
+
+      const method =
+        request.method();
+
+      if (
+        method !== 'GET' &&
+        method !== 'POST' &&
+        method !== 'OPTIONS'
+      ) {
+        return;
+      }
+
+      // skip static asset noise, but always keep api hosts
+      const isApiHost =
+        host === 'api.sparx-learning.com' ||
+        host.startsWith('api.');
+
+      if (!isApiHost && isNoiseAsset(url)) return;
+
+      addLog(
+        `[Sparx SNIFF] ${method} ${url}`
+      );
     }
   );
 
@@ -599,6 +618,19 @@ function attachNetworkSniffer(page, addLog) {
       const url =
         response.url();
 
+      let host;
+      try {
+        host = new URL(url).hostname;
+      } catch {
+        return;
+      }
+
+      const isSparx =
+        host === 'sparx-learning.com' ||
+        host.endsWith('.sparx-learning.com');
+
+      if (!isSparx) return;
+
       const isListStudentPackages =
         url.includes(
           '/maths/sparx.packageactivity.v1.Packages/ListStudentPackages'
@@ -609,36 +641,45 @@ function attachNetworkSniffer(page, addLog) {
           'Sparxweb/GetPackageData'
         );
 
-      if (
-        !isListStudentPackages &&
-        !isGetPackageData
-      ) {
+      const isApiHost =
+        host === 'api.sparx-learning.com' ||
+        host.startsWith('api.');
+
+      if (!isListStudentPackages && !isGetPackageData && !isApiHost) {
+        return;
+      }
+
+      if (!isApiHost && isNoiseAsset(url)) {
         return;
       }
 
       const tag =
         isGetPackageData
           ? 'GetPackageData'
-          : 'ListStudentPackages';
+          : isListStudentPackages
+            ? 'ListStudentPackages'
+            : null;
 
       try {
         const body =
           await response.buffer();
 
-        addLog(
-          `[Sparx ${tag}] RESPONSE detected`
-        );
-        addLog(
-          `[Sparx ${tag}] status=${response.status()}`
-        );
-        addLog(
-          `[Sparx ${tag}] content-type=${
-            response.headers()['content-type'] || 'unknown'
-          }`
-        );
-        addLog(
-          `[Sparx ${tag}] response-size=${body.length}`
-        );
+        if (tag) {
+          addLog(
+            `[Sparx ${tag}] RESPONSE detected`
+          );
+          addLog(
+            `[Sparx ${tag}] status=${response.status()}`
+          );
+          addLog(
+            `[Sparx ${tag}] content-type=${
+              response.headers()['content-type'] || 'unknown'
+            }`
+          );
+          addLog(
+            `[Sparx ${tag}] response-size=${body.length}`
+          );
+        }
 
         const payload =
           stripGrpcFrame(body);
@@ -661,11 +702,27 @@ function attachNetworkSniffer(page, addLog) {
             80
           );
 
-        addLog(
-          `[Sparx ${tag}] printable-fields=${JSON.stringify(
-            uniqueStrings
-          )}`
-        );
+        if (tag) {
+          addLog(
+            `[Sparx ${tag}] printable-fields=${JSON.stringify(
+              uniqueStrings
+            )}`
+          );
+        }
+
+        // For any non-asset api.sparx-learning.com response, log the
+        // URL, status, and a trimmed string sample so we can spot the
+        // task-serving endpoint without drowning in static asset noise.
+        if (isApiHost && !tag) {
+          const shortUrl =
+            url.replace(
+              'https://api.sparx-learning.com/',
+              ''
+            );
+          addLog(
+            `[Sparx API] ${response.status()} ${shortUrl} size=${body.length} sample=${JSON.stringify(uniqueStrings.slice(0, 12))}`
+          );
+        }
 
         if (
           isGetPackageData
@@ -678,9 +735,11 @@ function attachNetworkSniffer(page, addLog) {
         }
 
       } catch (error) {
-        addLog(
-          `[Sparx ${tag}] response diagnostic error: ${error.message}`
-        );
+        if (tag) {
+          addLog(
+            `[Sparx ${tag}] response diagnostic error: ${error.message}`
+          );
+        }
       }
     }
   );
@@ -1592,6 +1651,83 @@ async function getCookies(
 
           addLog(
             `[Sparx Packages] Detail settled URL: ${page.url()}`
+          );
+
+          // ----------------------------------------------------
+          // CTA CLICK — fires the task-fetch endpoint the modern
+          // app uses. GetPackageData is dead; the tasks load only
+          // after the app enters the homework. Without this click
+          // the sniffer never sees the task endpoint at all.
+          // ----------------------------------------------------
+
+          const clickResult =
+            await page.evaluate(() => {
+              const wanted =
+                /^(start|continue|resume|begin|open)\b/i;
+
+              const nodes =
+                [
+                  ...document.querySelectorAll(
+                    'button, a, [role="button"]'
+                  )
+                ];
+
+              const hit =
+                nodes.find(n => {
+                  const t =
+                    (
+                      n.innerText ||
+                      n.textContent ||
+                      ''
+                    ).trim();
+
+                  return (
+                    wanted.test(t) &&
+                    !n.disabled &&
+                    n.offsetParent !== null
+                  );
+                });
+
+              if (!hit) {
+                return {
+                  found: false,
+                  sample:
+                    nodes
+                      .slice(0, 25)
+                      .map(n =>
+                        (
+                          n.innerText ||
+                          ''
+                        ).trim()
+                      )
+                      .filter(Boolean)
+                };
+              }
+
+              hit.click();
+
+              return {
+                found: true,
+                text:
+                  (
+                    hit.innerText ||
+                    ''
+                  ).trim()
+              };
+            });
+
+          addLog(
+            `[Sparx Detail] cta: ${JSON.stringify(
+              clickResult
+            )}`
+          );
+
+          // give the app time to fire whatever fetch it does
+          // when entering the package
+          await delay(8000);
+
+          addLog(
+            `[Sparx Detail] post-cta settled URL: ${page.url()}`
           );
 
         } catch (error) {
