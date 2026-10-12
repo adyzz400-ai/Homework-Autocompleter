@@ -472,7 +472,44 @@ function stripGrpcFrame(body) {
 function attachNetworkSniffer(page, addLog) {
 
   // ----------------------------------------------------------
-  // REQUESTS
+  // CATCH-ALL: log every request to sparx's api hosts.
+  //
+  // This is the diagnostic that tells us which endpoints the
+  // modern client actually talks to. Once we see that, we can
+  // stop guessing at PackageDataRequest field values.
+  // ----------------------------------------------------------
+
+  page.on(
+    'request',
+    request => {
+      const url =
+        request.url();
+
+      if (
+        url.includes(
+          'api.sparx-learning.com'
+        ) ||
+        url.includes(
+          '.sparx-learning.com/'
+        )
+      ) {
+        const method =
+          request.method();
+
+        if (
+          method === 'POST' ||
+          method === 'GET'
+        ) {
+          addLog(
+            `[Sparx SNIFF] ${method} ${url}`
+          );
+        }
+      }
+    }
+  );
+
+  // ----------------------------------------------------------
+  // FOCUSED: ListStudentPackages + GetPackageData
   // ----------------------------------------------------------
 
   page.on(
@@ -606,9 +643,6 @@ function attachNetworkSniffer(page, addLog) {
         const payload =
           stripGrpcFrame(body);
 
-        // printable-strings scan (only ListStudentPackages needs
-        // the full 80; GetPackageData just needs to be visible in
-        // the log so we can see what comes back)
         const text =
           payload.toString('utf8');
 
@@ -633,8 +667,6 @@ function attachNetworkSniffer(page, addLog) {
           )}`
         );
 
-        // For GetPackageData also dump raw hex so we can see the
-        // shape even if the response is an error envelope.
         if (
           isGetPackageData
         ) {
@@ -749,7 +781,7 @@ async function getCookies(
         );
 
         // ======================================================
-        // NETWORK SNIFFER (ListStudentPackages + GetPackageData)
+        // NETWORK SNIFFER
         // ======================================================
 
         attachNetworkSniffer(page, addLog);
@@ -1530,50 +1562,47 @@ async function getCookies(
           `[Sparx Packages] Final browser URL: ${page.url()}`
         );
 
-// ======================================================
-// FORCE GetPackageData CAPTURE
-// ======================================================
-//
-// The homework LIST page fires ListStudentPackages but
-// not GetPackageData. GetPackageData only fires when the
-// app opens a specific package's detail page. Navigate
-// there once so the sniffer captures the request bytes.
 
-try {
+        // ======================================================
+        // FORCE GetPackageData CAPTURE
+        // ======================================================
 
-  const firstPackageId =
-    '92078a5d-1e9d-4b32-8987-ca6a14b63fcc';
+        try {
 
-  const detailUrl =
-    `https://maths.sparx-learning.com/student/homework/${firstPackageId}`;
+          const firstPackageId =
+            '92078a5d-1e9d-4b32-8987-ca6a14b63fcc';
 
-  addLog(
-    `[Sparx Packages] Opening detail page: ${detailUrl}`
-  );
+          const detailUrl =
+            `https://maths.sparx-learning.com/student/homework/${firstPackageId}`;
 
-  await page.goto(detailUrl, {
-    waitUntil: 'domcontentloaded',
-    timeout: 30000
-  });
+          addLog(
+            `[Sparx Packages] Opening detail page: ${detailUrl}`
+          );
 
-  addLog(
-    `[Sparx Packages] Detail page loaded: ${page.url()}`
-  );
+          await page.goto(detailUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000
+          });
 
-  // give the app time to fire its GetPackageData
-  await delay(8000);
+          addLog(
+            `[Sparx Packages] Detail page loaded: ${page.url()}`
+          );
 
-  addLog(
-    `[Sparx Packages] Detail settled URL: ${page.url()}`
-  );
+          await delay(8000);
 
-} catch (error) {
+          addLog(
+            `[Sparx Packages] Detail settled URL: ${page.url()}`
+          );
 
-  addLog(
-    `[Sparx Packages] Detail nav failed: ${error.message}`
-  );
+        } catch (error) {
 
-}
+          addLog(
+            `[Sparx Packages] Detail nav failed: ${error.message}`
+          );
+
+        }
+
+
         // ======================================================
         // CLOSE BROWSER AND RETURN COOKIES
         // ======================================================
