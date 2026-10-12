@@ -478,10 +478,6 @@ function attachNetworkSniffer(page, addLog) {
 
   // ----------------------------------------------------------
   // CATCH-ALL: log every request to *.sparx-learning.com
-  //
-  // Drops static assets so the log shows API + page traffic only.
-  // This is how we find the endpoint that actually serves tasks —
-  // GetPackageData is not it.
   // ----------------------------------------------------------
 
   page.on(
@@ -514,7 +510,6 @@ function attachNetworkSniffer(page, addLog) {
         return;
       }
 
-      // skip static asset noise, but always keep api hosts
       const isApiHost =
         host === 'api.sparx-learning.com' ||
         host.startsWith('api.');
@@ -641,11 +636,21 @@ function attachNetworkSniffer(page, addLog) {
           'Sparxweb/GetPackageData'
         );
 
+      const isGetCurrentSession =
+        url.includes(
+          'sparx.maths.sessions.v1.Sessions/GetCurrentSession'
+        );
+
       const isApiHost =
         host === 'api.sparx-learning.com' ||
         host.startsWith('api.');
 
-      if (!isListStudentPackages && !isGetPackageData && !isApiHost) {
+      if (
+        !isListStudentPackages &&
+        !isGetPackageData &&
+        !isGetCurrentSession &&
+        !isApiHost
+      ) {
         return;
       }
 
@@ -710,9 +715,6 @@ function attachNetworkSniffer(page, addLog) {
           );
         }
 
-        // For any non-asset api.sparx-learning.com response, log the
-        // URL, status, and a trimmed string sample so we can spot the
-        // task-serving endpoint without drowning in static asset noise.
         if (isApiHost && !tag) {
           const shortUrl =
             url.replace(
@@ -724,14 +726,43 @@ function attachNetworkSniffer(page, addLog) {
           );
         }
 
-        if (
-          isGetPackageData
-        ) {
+        if (isGetPackageData) {
           addLog(
             `[Sparx ${tag}] response-hex=${payload
               .slice(0, 512)
               .toString('hex')}`
           );
+        }
+
+        // ----------------------------------------------------
+        // FULL DUMP of GetCurrentSession. This endpoint fires on
+        // every page load and returns ~9.6 KB — the only endpoint
+        // in the modern app's traffic that plausibly carries the
+        // active package + its task list. Dump the whole body so
+        // we can decode it offline.
+        // ----------------------------------------------------
+        if (isGetCurrentSession) {
+          const b64 = body.toString('base64');
+          const hexHead =
+            body.slice(0, 2048).toString('hex');
+
+          addLog(
+            `[Sparx SESSION] size=${body.length}`
+          );
+          addLog(
+            `[Sparx SESSION] hex-head=${hexHead}`
+          );
+
+          // chunk the base64 so no log line explodes
+          for (
+            let i = 0;
+            i < b64.length;
+            i += 16000
+          ) {
+            addLog(
+              `[Sparx SESSION] b64[${i}]=${b64.slice(i, i + 16000)}`
+            );
+          }
         }
 
       } catch (error) {
@@ -1623,7 +1654,12 @@ async function getCookies(
 
 
         // ======================================================
-        // FORCE GetPackageData CAPTURE
+        // ENTER THE PACKAGE VIA SPA CLICK, NOT DEEP-LINK NAV
+        //
+        // A cold page.goto() on /student/homework/<uuid> renders a
+        // "refreshing the page" recovery dialog — the SPA can't
+        // boot into that deep route without the /student state.
+        // So: go to /student, find the homework card, click it.
         // ======================================================
 
         try {
@@ -1631,99 +1667,126 @@ async function getCookies(
           const firstPackageId =
             '92078a5d-1e9d-4b32-8987-ca6a14b63fcc';
 
-          const detailUrl =
-            `https://maths.sparx-learning.com/student/homework/${firstPackageId}`;
-
           addLog(
-            `[Sparx Packages] Opening detail page: ${detailUrl}`
+            `[Sparx Detail] Entering package via SPA: ${firstPackageId}`
           );
 
-          await page.goto(detailUrl, {
-            waitUntil: 'domcontentloaded',
-            timeout: 30000
-          });
+          await page.goto(
+            'https://maths.sparx-learning.com/student/homework?pkg_type=homework',
+            { waitUntil: 'domcontentloaded', timeout: 30000 }
+          );
+          await delay(4000);
+
+          // click the card whose href or any attribute carries the uuid
+          const cardClick =
+            await page.evaluate(uuid => {
+              const anchors =
+                [...document.querySelectorAll('a[href]')];
+              const byHref =
+                anchors.find(a => a.href.includes(uuid));
+              if (byHref) {
+                byHref.click();
+                return { hit: 'anchor', href: byHref.href };
+              }
+
+              const all =
+                [...document.querySelectorAll('*')];
+              const byAttr = all.find(n => {
+                const attrs = n.getAttributeNames?.() || [];
+                return attrs.some(k => {
+                  const v = n.getAttribute(k);
+                  return v && v.includes(uuid);
+                });
+              });
+              if (byAttr) {
+                byAttr.click();
+                return { hit: 'attr', tag: byAttr.tagName };
+              }
+
+              return { hit: null };
+            }, firstPackageId);
 
           addLog(
-            `[Sparx Packages] Detail page loaded: ${page.url()}`
+            `[Sparx Detail] card click: ${JSON.stringify(cardClick)}`
           );
 
           await delay(8000);
 
           addLog(
-            `[Sparx Packages] Detail settled URL: ${page.url()}`
+            `[Sparx Detail] after card click URL: ${page.url()}`
           );
 
-          // ----------------------------------------------------
-          // CTA CLICK — fires the task-fetch endpoint the modern
-          // app uses. GetPackageData is dead; the tasks load only
-          // after the app enters the homework. Without this click
-          // the sniffer never sees the task endpoint at all.
-          // ----------------------------------------------------
-
-          const clickResult =
+          // inspect what the page looks like
+          const pageState =
             await page.evaluate(() => {
-              const wanted =
-                /^(start|continue|resume|begin|open)\b/i;
-
-              const nodes =
-                [
-                  ...document.querySelectorAll(
-                    'button, a, [role="button"]'
-                  )
-                ];
-
-              const hit =
-                nodes.find(n => {
-                  const t =
-                    (
-                      n.innerText ||
-                      n.textContent ||
-                      ''
-                    ).trim();
-
-                  return (
-                    wanted.test(t) &&
-                    !n.disabled &&
-                    n.offsetParent !== null
-                  );
-                });
-
-              if (!hit) {
-                return {
-                  found: false,
-                  sample:
-                    nodes
-                      .slice(0, 25)
-                      .map(n =>
-                        (
-                          n.innerText ||
-                          ''
-                        ).trim()
-                      )
-                      .filter(Boolean)
-                };
-              }
-
-              hit.click();
-
+              const txt =
+                (document.body.innerText || '').slice(0, 800);
+              const hasRefreshModal =
+                /refreshing the page/i.test(txt);
+              const buttons =
+                [...document.querySelectorAll('button, a, [role="button"]')]
+                  .map(b => (b.innerText || '').trim())
+                  .filter(Boolean);
               return {
-                found: true,
-                text:
-                  (
-                    hit.innerText ||
-                    ''
-                  ).trim()
+                url: location.href,
+                hasRefreshModal,
+                buttons: buttons.slice(0, 30)
               };
             });
 
           addLog(
-            `[Sparx Detail] cta: ${JSON.stringify(
-              clickResult
-            )}`
+            `[Sparx Detail] page state: ${JSON.stringify(pageState)}`
           );
 
-          // give the app time to fire whatever fetch it does
-          // when entering the package
+          if (pageState.hasRefreshModal) {
+            const refreshed =
+              await page.evaluate(() => {
+                const b =
+                  [...document.querySelectorAll('button')]
+                    .find(x =>
+                      /^refresh$/i.test(
+                        (x.innerText || '').trim()
+                      )
+                    );
+                if (b) { b.click(); return true; }
+                return false;
+              });
+            addLog(
+              `[Sparx Detail] refresh clicked: ${refreshed}`
+            );
+            await delay(8000);
+          }
+
+          // try the start CTA again now that the SPA booted properly
+          const cta =
+            await page.evaluate(() => {
+              const wanted =
+                /^(start|continue|resume|begin|open|go)\b/i;
+              const nodes =
+                [...document.querySelectorAll(
+                  'button, a, [role="button"]'
+                )];
+              const hit = nodes.find(n => {
+                const t =
+                  (n.innerText || n.textContent || '').trim();
+                return (
+                  wanted.test(t) &&
+                  !n.disabled &&
+                  n.offsetParent !== null
+                );
+              });
+              if (!hit) return { found: false };
+              hit.click();
+              return {
+                found: true,
+                text: (hit.innerText || '').trim()
+              };
+            });
+
+          addLog(
+            `[Sparx Detail] cta: ${JSON.stringify(cta)}`
+          );
+
           await delay(8000);
 
           addLog(
@@ -1733,7 +1796,7 @@ async function getCookies(
         } catch (error) {
 
           addLog(
-            `[Sparx Packages] Detail nav failed: ${error.message}`
+            `[Sparx Detail] enter-package failed: ${error.message}`
           );
 
         }
