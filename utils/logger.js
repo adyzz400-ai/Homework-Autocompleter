@@ -23,6 +23,9 @@ class logger {
         if (this.logFile && this.logFile.writable) {
             this.logFile.write(logLine + '\n');
         }
+
+        // Mirror to stdout so the Render log tab sees everything.
+        console.log(logLine);
     }
 
     async sendToWebhook() {
