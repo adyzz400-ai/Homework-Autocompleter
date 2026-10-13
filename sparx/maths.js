@@ -1155,7 +1155,7 @@ for (const f of rawFields) {
         const frame = this.buildPackageDataRequestFrame({
             includeAllActivePackages: true,
             getTaskItems:  true,
-            packageID:     packageID,
+            packageID:     `packages/${packageID}`,
             taskIndex,
             taskItemIndex: 0
         });
@@ -1183,7 +1183,7 @@ for (const f of rawFields) {
         const frame = this.buildPackageDataRequestFrame({
             includeAllActivePackages: true,
             getTasks:      true,
-            packageID:     packageID,
+            packageID:     `packages/${packageID}`,
             taskIndex:     0,
             taskItemIndex: 0
         });
