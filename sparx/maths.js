@@ -349,6 +349,17 @@ class SparxMaths extends SparxBase {
         return { value: result, next: pos };
     }
 
+    encodeVarintBytes(n) {
+        const bytes = [];
+        let v = BigInt(n);
+        while (v > 0x7fn) {
+            bytes.push(Number(v & 0x7fn) | 0x80);
+            v >>= 7n;
+        }
+        bytes.push(Number(v));
+        return Buffer.from(bytes);
+    }
+
     walkProtobuf(buf, depth = 0, maxDepth = 6) {
         const fields = [];
         let pos = 0;
@@ -843,19 +854,38 @@ class SparxMaths extends SparxBase {
     /*  GetPackage — the modern package task endpoint                     */
     /*                                                                    */
     /*  Endpoint: POST /maths/sparx.packageactivity.v1.Packages/GetPackage */
-    /*  Body: raw string `-packages/<uuid>` (path-style sentinel, not     */
-    /*        protobuf, not gRPC-web framed). The leading `-` is part of  */
-    /*        the value the web client sends.                            */
     /*                                                                    */
-    /*  The response IS protobuf (content-type: application/grpc-web+    */
-    /*  proto). Parse it with walkProtobuf and packageDataFromRawWalk.    */
+    /*  Request: proper gRPC-web frame.                                   */
+    /*    byte 0: 0x00 (uncompressed)                                     */
+    /*    bytes 1-4: big-endian length of the protobuf body               */
+    /*    bytes 5+: GetPackageRequest protobuf:                           */
+    /*      field 1 (string, "packages/<uuid>") = the package path        */
+    /*                                                                    */
+    /*  Response: gRPC-web framed protobuf, parsed via walkProtobuf.      */
     /* ------------------------------------------------------------------ */
 
     buildGetPackageBody(packageID) {
-        return Buffer.from(
-            `-packages/${packageID}`,
+        const pathValue = Buffer.from(
+            `packages/${packageID}`,
             'utf8'
         );
+
+        // protobuf: tag for field 1, wire type 2 (length-delimited) = 0x0a
+        const tag = Buffer.from([0x0a]);
+        const lengthVarint =
+            this.encodeVarintBytes(pathValue.length);
+        const body = Buffer.concat([
+            tag,
+            lengthVarint,
+            pathValue
+        ]);
+
+        // outer gRPC-web frame
+        const header = Buffer.alloc(5);
+        header.writeUInt8(0x00, 0);
+        header.writeUInt32BE(body.length, 1);
+
+        return Buffer.concat([header, body]);
     }
 
     async getTasks(packageID) {
@@ -951,7 +981,6 @@ class SparxMaths extends SparxBase {
 
     /* ------------------------------------------------------------------ */
     /*  Decode a GetPackage response into { packages, tasks, taskItems }  */
-    /*  using the field numbers from the modern client bundle:            */
     /*    1 = repeated Package                                            */
     /*    2 = repeated Task                                               */
     /*    3 = repeated TaskItem                                           */
