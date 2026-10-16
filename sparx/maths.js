@@ -697,45 +697,6 @@ class SparxMaths extends SparxBase {
         let rawFields = [];
         try {
             rawFields = this.walkProtobuf(payload);
-            // dump the full nested structure of the first package's field 11 (metadata)
-for (const f of rawFields) {
-    if (f.fieldNumber !== 1 || !f.nested) continue;
-    for (const sub of f.nested) {
-        if (sub.fieldNumber === 11 && sub.nested) {
-            console.log(
-                '[Sparx][META] full field 11:',
-                JSON.stringify(sub, null, 2)
-            );
-            break;
-        }
-    }
-    break;
-}
-            console.log(
-                '[Sparx][RAW] top-level fields:',
-                rawFields.length
-            );
-            let printed = 0;
-            for (const f of rawFields) {
-                if (f.fieldNumber !== 1 || !f.nested) continue;
-                const tags = f.nested
-                    .map((x) => `${x.fieldNumber}:${x.wireType}`)
-                    .join(',');
-                let id = 'unknown';
-                for (const sub of f.nested) {
-                    if (sub.fieldNumber === 1 && sub.string) {
-                        const m = sub.string.match(
-                            /packages\/([0-9a-f-]{36})/i
-                        );
-                        if (m) { id = m[1].slice(0, 8); break; }
-                    }
-                }
-                console.log(
-                    `[Sparx][PKG] ${id} top tags: ${tags}`
-                );
-                printed++;
-                if (printed >= 3) break;
-            }
         } catch (err) {
             console.log('[Sparx][RAW] walk failed:', err.message);
         }
@@ -879,99 +840,121 @@ for (const f of rawFields) {
     }
 
     /* ------------------------------------------------------------------ */
-    /*  gRPC-web wire encoding for GetPackageData (PackageDataRequest)    */
+    /*  GetPackage — the modern package task endpoint                     */
     /*                                                                    */
-    /*  Field numbers verified against the modern Sparx client bundle:   */
-    /*  sparxweb.PackageDataRequest {                                    */
-    /*    bool   include_all_active_packages = 2;                        */
-    /*    bool   get_packages               = 3;                         */
-    /*    bool   get_tasks                  = 4;                         */
-    /*    bool   get_task_items             = 5;                         */
-    /*    string package_id                 = 6;                         */
-    /*    int64  task_index                 = 7;                         */
-    /*    int64  task_item_index            = 8;                         */
-    /*  }                                                                 */
+    /*  Endpoint: POST /maths/sparx.packageactivity.v1.Packages/GetPackage */
+    /*  Body: raw string `-packages/<uuid>` (path-style sentinel, not     */
+    /*        protobuf, not gRPC-web framed). The leading `-` is part of  */
+    /*        the value the web client sends.                            */
     /*                                                                    */
-    /*  Response shape (sparxweb.PackageData):                            */
-    /*    1 = repeated Package                                            */
-    /*    2 = repeated Task                                               */
-    /*    3 = repeated TaskItem                                           */
+    /*  The response IS protobuf (content-type: application/grpc-web+    */
+    /*  proto). Parse it with walkProtobuf and packageDataFromRawWalk.    */
     /* ------------------------------------------------------------------ */
 
-    encodeVarintBytes(n) {
-        const bytes = [];
-        let v = BigInt(n);
-        while (v > 0x7fn) {
-            bytes.push(Number(v & 0x7fn) | 0x80);
-            v >>= 7n;
-        }
-        bytes.push(Number(v));
-        return Buffer.from(bytes);
-    }
-
-    encodeTagBytes(fieldNumber, wireType) {
-        return this.encodeVarintBytes(
-            (BigInt(fieldNumber) << 3n) | BigInt(wireType)
+    buildGetPackageBody(packageID) {
+        return Buffer.from(
+            `-packages/${packageID}`,
+            'utf8'
         );
     }
 
-    encodeBoolFieldBytes(fieldNumber, value) {
-        if (!value) return Buffer.alloc(0);
-        return Buffer.concat([
-            this.encodeTagBytes(fieldNumber, 0),
-            Buffer.from([0x01])
-        ]);
+    async getTasks(packageID) {
+        const body = this.buildGetPackageBody(packageID);
+
+        console.log(
+            '[getTasks] → POST Packages/GetPackage for',
+            `packages/${packageID}`,
+            'body bytes =',
+            body.length
+        );
+
+        const response = await this.send(
+            'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/GetPackage',
+            body
+        );
+
+        console.log(
+            '[getTasks] ← status =',
+            response?.status,
+            'grpc-status =',
+            response?.headers?.['grpc-status'],
+            'grpc-message =',
+            response?.headers?.['grpc-message'],
+            'data bytes =',
+            response?.data?.length || 0
+        );
+
+        if (!response?.data) {
+            return { packages: [], tasks: [], taskItems: [] };
+        }
+
+        let payload = response.data;
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+
+        if (payload.length >= 5 && payload[0] === 0) {
+            const messageLength = payload.readUInt32BE(1);
+            if (messageLength <= payload.length - 5) {
+                payload = payload.subarray(5, 5 + messageLength);
+            }
+        }
+
+        console.log(
+            '[getTasks] payload bytes after frame strip =',
+            payload.length
+        );
+
+        const raw = this.walkProtobuf(payload);
+
+        console.log(
+            '[getTasks] raw top-level tags =',
+            raw
+                .slice(0, 20)
+                .map(f => `${f.fieldNumber}:${f.wireType}`)
+                .join(',')
+        );
+
+        const decoded = this.packageDataFromRawWalk(raw);
+
+        console.log(
+            '[getTasks] decoded → packages =',
+            decoded.packages.length,
+            'tasks =',
+            decoded.tasks.length,
+            'taskItems =',
+            decoded.taskItems.length
+        );
+
+        return decoded;
     }
 
-    encodeStringFieldBytes(fieldNumber, value) {
-        if (!value) return Buffer.alloc(0);
-        const s = Buffer.from(String(value), 'utf8');
-        return Buffer.concat([
-            this.encodeTagBytes(fieldNumber, 2),
-            this.encodeVarintBytes(s.length),
-            s
-        ]);
-    }
+    async getTasksItems(packageID, taskIndex) {
+        const body = this.buildGetPackageBody(packageID);
 
-    encodeInt64FieldBytes(fieldNumber, value) {
-        if (!value) return Buffer.alloc(0);
-        return Buffer.concat([
-            this.encodeTagBytes(fieldNumber, 0),
-            this.encodeVarintBytes(value)
-        ]);
-    }
+        const response = await this.send(
+            'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/GetPackage',
+            body
+        );
 
-    buildPackageDataRequestFrame({
-        includeAllActivePackages = false,
-        getPackages              = false,
-        getTasks                 = false,
-        getTaskItems             = false,
-        packageID                = '',
-        taskIndex                = 0,
-        taskItemIndex            = 0
-    }) {
-        const parts = [
-            this.encodeBoolFieldBytes(2, includeAllActivePackages),
-            this.encodeBoolFieldBytes(3, getPackages),
-            this.encodeBoolFieldBytes(4, getTasks),
-            this.encodeBoolFieldBytes(5, getTaskItems),
-            this.encodeStringFieldBytes(6, packageID),
-            this.encodeInt64FieldBytes(7, taskIndex),
-            this.encodeInt64FieldBytes(8, taskItemIndex)
-        ].filter(b => b.length > 0);
+        if (!response?.data) return [];
 
-        const body = Buffer.concat(parts);
+        let payload = response.data;
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+        if (payload.length >= 5 && payload[0] === 0) {
+            const len = payload.readUInt32BE(1);
+            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
+        }
 
-        // gRPC-web frame: 1 byte compression flag, 4 bytes big-endian length
-        const header = Buffer.alloc(5);
-        header.writeUInt8(0, 0);
-        header.writeUInt32BE(body.length, 1);
-        return Buffer.concat([header, body]);
+        const raw = this.walkProtobuf(payload);
+        const decoded = this.packageDataFromRawWalk(raw);
+        return decoded.taskItems;
     }
 
     /* ------------------------------------------------------------------ */
-    /*  Decode a GetPackageData response into { packages, tasks,         */
-    /*  taskItems } using the field numbers from the bundle.             */
+    /*  Decode a GetPackage response into { packages, tasks, taskItems }  */
+    /*  using the field numbers from the modern client bundle:            */
+    /*    1 = repeated Package                                            */
+    /*    2 = repeated Task                                               */
+    /*    3 = repeated TaskItem                                           */
     /* ------------------------------------------------------------------ */
 
     packageDataFromRawWalk(topFields) {
@@ -1025,7 +1008,6 @@ for (const f of rawFields) {
                         const m = f.string.match(/tasks\/([0-9a-f-]{36})/i);
                         if (m) pkg.taskIds.push(m[1]);
                     } else if (f.fieldNumber === 14 && f.nested) {
-                        // Completion { map<string,double> progress }
                         for (const s of f.nested) {
                             if (s.fieldNumber === 3 && s.nested) {
                                 let key = null, val = null;
@@ -1149,63 +1131,6 @@ for (const f of rawFields) {
         }
 
         return out;
-    }
-
-    async getTasksItems(packageID, taskIndex) {
-        const frame = this.buildPackageDataRequestFrame({
-            includeAllActivePackages: true,
-            getTaskItems:  true,
-            packageID:     `packages/${packageID}`,
-            taskIndex,
-            taskItemIndex: 0
-        });
-
-        const response = await this.send(
-            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-            frame
-        );
-
-        if (!response?.data) return [];
-
-        let payload = response.data;
-        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
-        if (payload.length >= 5 && payload[0] === 0) {
-            const len = payload.readUInt32BE(1);
-            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
-        }
-
-        const raw = this.walkProtobuf(payload);
-        const decoded = this.packageDataFromRawWalk(raw);
-        return decoded.taskItems;
-    }
-
-    async getTasks(packageID) {
-        const frame = this.buildPackageDataRequestFrame({
-            includeAllActivePackages: true,
-            getTasks:      true,
-            packageID:     `packages/${packageID}`,
-            taskIndex:     0,
-            taskItemIndex: 0
-        });
-
-        const response = await this.send(
-            'https://api.sparx-learning.com/sparx.swworker.v1.Sparxweb/GetPackageData',
-            frame
-        );
-
-        if (!response?.data) {
-            return { packages: [], tasks: [], taskItems: [] };
-        }
-
-        let payload = response.data;
-        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
-        if (payload.length >= 5 && payload[0] === 0) {
-            const len = payload.readUInt32BE(1);
-            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
-        }
-
-        const raw = this.walkProtobuf(payload);
-        return this.packageDataFromRawWalk(raw);
     }
 
     async getPackageData(inputObject) {
