@@ -870,7 +870,6 @@ class SparxMaths extends SparxBase {
             'utf8'
         );
 
-        // protobuf: tag for field 1, wire type 2 (length-delimited) = 0x0a
         const tag = Buffer.from([0x0a]);
         const lengthVarint =
             this.encodeVarintBytes(pathValue.length);
@@ -880,7 +879,6 @@ class SparxMaths extends SparxBase {
             pathValue
         ]);
 
-        // outer gRPC-web frame
         const header = Buffer.alloc(5);
         header.writeUInt8(0x00, 0);
         header.writeUInt32BE(body.length, 1);
@@ -942,7 +940,8 @@ class SparxMaths extends SparxBase {
                 .map(f => `${f.fieldNumber}:${f.wireType}`)
                 .join(',')
         );
-        // diagnostic: dump top-level tag counts inside the GetPackage response
+
+        // diagnostic: top-level field histogram inside the package submessage
         if (raw[0] && raw[0].nested) {
             const counts = {};
             for (const f of raw[0].nested) {
@@ -954,6 +953,26 @@ class SparxMaths extends SparxBase {
                 JSON.stringify(counts)
             );
         }
+
+        // diagnostic: histogram of first nested submessage under field 11
+        // (the repeated task field — 15 occurrences in the last run)
+        if (raw[0] && raw[0].nested) {
+            const taskField = raw[0].nested.find(
+                f => f.fieldNumber === 11 && f.nested
+            );
+            if (taskField && taskField.nested[0] && taskField.nested[0].nested) {
+                const taskCounts = {};
+                for (const f of taskField.nested[0].nested) {
+                    const k = `${f.fieldNumber}:${f.wireType}`;
+                    taskCounts[k] = (taskCounts[k] || 0) + 1;
+                }
+                console.log(
+                    '[getTasks] field histogram inside first task =',
+                    JSON.stringify(taskCounts)
+                );
+            }
+        }
+
         const decoded = this.packageDataFromRawWalk(raw);
 
         console.log(
@@ -989,23 +1008,7 @@ class SparxMaths extends SparxBase {
         const decoded = this.packageDataFromRawWalk(raw);
         return decoded.taskItems;
     }
-    // diagnostic: dump histogram of first task inside field 11
-    if (raw[0] && raw[0].nested) {
-        const taskField = raw[0].nested.find(
-            f => f.fieldNumber === 11 && f.nested
-        );
-        if (taskField && taskField.nested[0] && taskField.nested[0].nested) {
-            const taskCounts = {};
-            for (const f of taskField.nested[0].nested) {
-                const k = `${f.fieldNumber}:${f.wireType}`;
-                taskCounts[k] = (taskCounts[k] || 0) + 1;
-            }
-            console.log(
-                '[getTasks] field histogram inside first task =',
-                JSON.stringify(taskCounts)
-            );
-        }
-    }
+
     /* ------------------------------------------------------------------ */
     /*  Decode a GetPackage response into { packages, tasks, taskItems }  */
     /*    1 = repeated Package                                            */
