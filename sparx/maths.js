@@ -989,7 +989,23 @@ class SparxMaths extends SparxBase {
         const decoded = this.packageDataFromRawWalk(raw);
         return decoded.taskItems;
     }
-
+    // diagnostic: dump histogram of first task inside field 11
+    if (raw[0] && raw[0].nested) {
+        const taskField = raw[0].nested.find(
+            f => f.fieldNumber === 11 && f.nested
+        );
+        if (taskField && taskField.nested[0] && taskField.nested[0].nested) {
+            const taskCounts = {};
+            for (const f of taskField.nested[0].nested) {
+                const k = `${f.fieldNumber}:${f.wireType}`;
+                taskCounts[k] = (taskCounts[k] || 0) + 1;
+            }
+            console.log(
+                '[getTasks] field histogram inside first task =',
+                JSON.stringify(taskCounts)
+            );
+        }
+    }
     /* ------------------------------------------------------------------ */
     /*  Decode a GetPackage response into { packages, tasks, taskItems }  */
     /*    1 = repeated Package                                            */
