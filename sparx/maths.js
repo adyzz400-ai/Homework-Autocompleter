@@ -942,7 +942,18 @@ class SparxMaths extends SparxBase {
                 .map(f => `${f.fieldNumber}:${f.wireType}`)
                 .join(',')
         );
-
+        // diagnostic: dump top-level tag counts inside the GetPackage response
+        if (raw[0] && raw[0].nested) {
+            const counts = {};
+            for (const f of raw[0].nested) {
+                const k = `${f.fieldNumber}:${f.wireType}`;
+                counts[k] = (counts[k] || 0) + 1;
+            }
+            console.log(
+                '[getTasks] field histogram inside package =',
+                JSON.stringify(counts)
+            );
+        }
         const decoded = this.packageDataFromRawWalk(raw);
 
         console.log(
