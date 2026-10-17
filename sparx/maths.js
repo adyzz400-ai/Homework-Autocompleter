@@ -954,45 +954,84 @@ class SparxMaths extends SparxBase {
             );
         }
 
-        // diagnostic: report field-11 entries' shape
-if (raw[0] && raw[0].nested) {
-    const elevens = raw[0].nested.filter(f => f.fieldNumber === 11);
-    console.log(
-        '[getTasks] field 11 entries =',
-        elevens.length,
-        'first entry keys =',
-        JSON.stringify(
-            elevens[0]
-                ? {
-                    hasNested: !!elevens[0].nested,
-                    nestedLen: elevens[0].nested
-                        ? elevens[0].nested.length
-                        : 0,
-                    hasString: !!elevens[0].string,
-                    stringValue: elevens[0].string
-                        ? elevens[0].string.slice(0, 80)
-                        : null,
-                    hasBytes: !!elevens[0].bytes,
-                    bytesLen: elevens[0].bytes
-                        ? elevens[0].bytes.length
-                        : 0
-                  }
-                : null
-        )
-    );
+        // diagnostic: report field-11 entries' shape + first task histogram
+        if (raw[0] && raw[0].nested) {
+            const elevens = raw[0].nested.filter(
+                f => f.fieldNumber === 11
+            );
 
-    if (elevens[0] && elevens[0].nested) {
-        const taskCounts = {};
-        for (const f of elevens[0].nested) {
-            const k = `${f.fieldNumber}:${f.wireType}`;
-            taskCounts[k] = (taskCounts[k] || 0) + 1;
+            console.log(
+                '[getTasks] field 11 entries =',
+                elevens.length,
+                'first entry keys =',
+                JSON.stringify(
+                    elevens[0]
+                        ? {
+                            hasNested: !!elevens[0].nested,
+                            nestedLen: elevens[0].nested
+                                ? elevens[0].nested.length
+                                : 0,
+                            hasString: !!elevens[0].string,
+                            stringValue: elevens[0].string
+                                ? elevens[0].string.slice(0, 80)
+                                : null,
+                            hasBytes: !!elevens[0].bytes,
+                            bytesLen: elevens[0].bytes
+                                ? elevens[0].bytes.length
+                                : 0
+                          }
+                        : null
+                )
+            );
+
+            if (elevens[0] && elevens[0].nested) {
+                const taskCounts = {};
+                for (const f of elevens[0].nested) {
+                    const k = `${f.fieldNumber}:${f.wireType}`;
+                    taskCounts[k] = (taskCounts[k] || 0) + 1;
+                }
+                console.log(
+                    '[getTasks] field histogram inside first task =',
+                    JSON.stringify(taskCounts)
+                );
+            }
         }
+
+        const decoded = this.packageDataFromRawWalk(raw);
+
         console.log(
-            '[getTasks] field histogram inside first task =',
-            JSON.stringify(taskCounts)
+            '[getTasks] decoded → packages =',
+            decoded.packages.length,
+            'tasks =',
+            decoded.tasks.length,
+            'taskItems =',
+            decoded.taskItems.length
         );
+
+        return decoded;
     }
-}
+
+    async getTasksItems(packageID, taskIndex) {
+        const body = this.buildGetPackageBody(packageID);
+
+        const response = await this.send(
+            'https://api.sparx-learning.com/maths/sparx.packageactivity.v1.Packages/GetPackage',
+            body
+        );
+
+        if (!response?.data) return [];
+
+        let payload = response.data;
+        if (!Buffer.isBuffer(payload)) payload = Buffer.from(payload);
+        if (payload.length >= 5 && payload[0] === 0) {
+            const len = payload.readUInt32BE(1);
+            if (len <= payload.length - 5) payload = payload.subarray(5, 5 + len);
+        }
+
+        const raw = this.walkProtobuf(payload);
+        const decoded = this.packageDataFromRawWalk(raw);
+        return decoded.taskItems;
+    }
 
     /* ------------------------------------------------------------------ */
     /*  Decode a GetPackage response into { packages, tasks, taskItems }  */
